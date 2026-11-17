@@ -365,6 +365,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const float width = readParam (parameters, "width");
     const float delayMs = readParam (parameters, "delay");
     const float modDepth = readParam (parameters, "modDepth");
+    const bool autoGainEnabled = readParam (parameters, "autoGain") > 0.5f;
     const int character = juce::jlimit (0, 2, static_cast<int> (readParam (parameters, "character")));
     const float charAmount = readParam (parameters, "characterAmt");
     const float formantDb = readParam (parameters, "formant"), airDb = readParam (parameters, "air");
@@ -434,9 +435,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
             const float preGain = (1.0f - smoothMix) * decor + smoothMix * dry;
             blockOutputSq += static_cast<double> (preGain) * preGain;
-            const float gainRamp = rmsGainStart + (rmsCompGain - rmsGainStart)
-                * (static_cast<float> (i + 1) / static_cast<float> (numSamples));
-            const float compensation = readParam (parameters, "autoGain") > 0.5f ? gainRamp : 1.0f;
+            const float compensation = autoGainEnabled ? rmsCompGain : 1.0f;
             data[i] = preGain * compensation * smoothOutput;
             if (ch == channels - 1) delayWrite = (delayWrite + 1) % delayCapacity;
             juce::ignoreUnused (read);
@@ -451,7 +450,6 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         const double envelope = std::exp (-static_cast<double> (numSamples) / (currentSampleRate * 0.300));
         inputRmsPower = envelope * inputRmsPower + (1.0 - envelope) * inPower;
         outputRmsPower = envelope * outputRmsPower + (1.0 - envelope) * outPower;
-        const bool autoGainEnabled = readParam (parameters, "autoGain") > 0.5f;
         float targetGain = 1.0f;
         if (autoGainEnabled && inputRmsPower > 1.0e-10 && outputRmsPower > 1.0e-10)
             targetGain = juce::jlimit (0.25118864f, 3.98107171f,
