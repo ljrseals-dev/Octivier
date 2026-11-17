@@ -6,7 +6,7 @@
 
 - JUCE AudioProcessor with host-automatable parameters and XML state serialization.
 - VST3, AU, and Standalone build targets (AU is macOS-only).
-- Pitch estimate with gate, confidence hold, sensitivity, and manual/freeze fundamental.
+- Sample-rate-adaptive ACF pitch estimate (window scales to preserve the 55 Hz lower bound), with gate, confidence, sensitivity, and manual/freeze fundamental.
 - Classic, Sub, Hollow, and Square harmonic modes; 16 partial filter slots.
 - Strength/focus smoothing; bounded filter frequency/Q; parallel dry blend.
 - Fixed three-slot coefficient-generation ring and state-published request mailbox; coefficients are plain values and are adopted at block boundaries.

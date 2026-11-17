@@ -17,6 +17,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Check test-tone generator syntax
+        run: python -m py_compile tools/make_test_tone.py
+
       - name: Configure JUCE-independent targets
         run: cmake -S . -B build -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DCMAKE_BUILD_TYPE=Release
 
