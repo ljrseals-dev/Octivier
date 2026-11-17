@@ -35,13 +35,19 @@ int main()
         juce::AudioBuffer<float> silence (2, 512);
         silence.clear();
         for (int pass = 0; pass < 20; ++pass)
+        {
+            silence.clear();
             p.processBlock (silence, midi);
+        }
         if (p.getTrackedFundamental() != 0.0f)
         {
-            std::cerr << "FAIL: pitch gate retained a stale fundamental after silence\\n";
+            std::cerr << "FAIL: pitch gate retained a stale fundamental after silence\n";
             return 1;
         }
     }
+
+    // Reset delay/history state so this continuity check starts from a clean ring.
+    p.prepareToPlay (48000.0, 512);
 
     // The right-channel delay LFO must remain smooth across delay-ring wraps.
     {
@@ -77,7 +83,7 @@ int main()
         if (maxAdjacentJump > 0.05f)
         {
             std::cerr << "FAIL: delay LFO discontinuity, max adjacent jump="
-                      << maxAdjacentJump << '\\n';
+                      << maxAdjacentJump << '\n';
             return 1;
         }
     }
@@ -93,10 +99,10 @@ int main()
         || character->load() != 0.0f || characterAmt->load() != 0.0f
         || strength->load() != 0.0f || mix->load() != 1.0f)
     {
-        std::cerr << "FAIL: preset switch retained stale parameter values\\n";
+        std::cerr << "FAIL: preset switch retained stale parameter values\n";
         return 1;
     }
 
-    std::cout << "PASS: finite-output, state-serialization, and preset-snapshot smoke checks. Not a host or sound-quality certification.\\n";
+    std::cout << "PASS: finite-output, state-serialization, and preset-snapshot smoke checks. Not a host or sound-quality certification.\n";
     return 0;
 }
