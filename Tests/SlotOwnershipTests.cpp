@@ -164,7 +164,9 @@ int main()
         }
 
         // Drain the final successful request and adopt the last published slot.
-        while (consumed.load (std::memory_order_acquire) < published.load (std::memory_order_acquire)
+        bool finalAdopted = false;
+        while (! finalAdopted
+               || consumed.load (std::memory_order_acquire) < published.load (std::memory_order_acquire)
                || mailbox.state.load (std::memory_order_acquire) != Empty)
         {
             int replacement = -1;
@@ -181,6 +183,7 @@ int main()
                 active = replacement;
                 const auto& adopted = slots[static_cast<std::size_t> (active)].payload;
                 if (! coherent (adopted)) failure.store (true, std::memory_order_relaxed);
+                if (adopted.sequence == target) finalAdopted = true;
                 if (old >= 0 && old != replacement)
                     slots[static_cast<std::size_t> (old)].state.store (Idle, std::memory_order_release);
             }
@@ -190,6 +193,7 @@ int main()
         // The last successful payload, not the last attempted payload, must
         // reach the consumer. Since rejected attempts do not advance next,
         // the final successful sequence is exactly target.
+        if (! finalAdopted) failure.store (true, std::memory_order_relaxed);
         if (active >= 0)
         {
             const auto& finalPayload = slots[static_cast<std::size_t> (active)].payload;
