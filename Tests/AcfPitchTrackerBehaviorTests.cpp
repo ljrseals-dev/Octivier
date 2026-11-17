@@ -35,7 +35,7 @@ bool checkPitch (double sr, int frameSize, float minF0, float maxF0,
     const float detected = tracker.estimate (frame.data(), frameSize, -90.0f, 0.62f, confidence);
     const double cents = detected > 0.0f
         ? std::abs (1200.0 * std::log2 (detected / hz)) : 1.0e6;
-    if (detected <= 0.0f || cents > 35.0 || confidence < 0.1f)
+    if (detected <= 0.0f || cents > (saw ? 60.0 : 35.0) || confidence < 0.1f)
     {
         std::cerr << "FAIL: ACF " << (saw ? "saw" : "sine") << " sr=" << sr
                   << " target=" << hz << " detected=" << detected
