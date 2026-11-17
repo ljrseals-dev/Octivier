@@ -73,7 +73,7 @@ float legacyEstimate (const float* input, double sampleRate,
 int main (int argc, char** argv)
 {
     const bool dumpCsv = argc > 1 && std::string (argv[1]) == "--csv";
-    if (dumpCsv) std::cout << "frame_index,legacy_hz,legacy_confidence,extracted_hz,extracted_confidence\\n";
+    if (dumpCsv) std::cout << "frame_index,legacy_hz,legacy_confidence,extracted_hz,extracted_confidence\n";
     constexpr double sampleRate = 48000.0;
     constexpr int totalSamples = 10 * 48000;
     constexpr int hop = 480; // 10 ms; first half sweep, second half silence.
@@ -112,7 +112,7 @@ int main (int argc, char** argv)
                                                         0.62f, extractedConfidence);
         if (dumpCsv)
             std::cout << compared << ',' << legacyHz << ',' << legacyConfidence << ','
-                      << extractedHz << ',' << extractedConfidence << '\\n';
+                      << extractedHz << ',' << extractedConfidence << '\n';
         if (legacyHz != extractedHz || legacyConfidence != extractedConfidence)
         {
             std::cerr << "FAIL: ACF extraction differs at frame " << compared
