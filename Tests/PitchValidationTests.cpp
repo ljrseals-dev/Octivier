@@ -36,16 +36,15 @@ class AcfAdapter final : public IPitchTracker
 {
 public:
     bool prepare (double sr, float lo, float hi, int size, float) override
-    { confidence = 0.0f; return tracker.prepare (sr, size, lo, hi); }
+    { return tracker.prepare (sr, size, lo, hi); }
     float estimate (const float* frame, int size, float gate, float& conf) override
-    { const float hz = tracker.estimate (frame, size, gate, confidence); conf = confidence; return hz; }
+    { return tracker.estimate (frame, size, gate, conf); }
     int getFrameSize() const override { return tracker.getFrameSize(); }
     int getTauMin() const override { return tracker.getTauMin(); }
     int getTauMax() const override { return tracker.getTauMax(); }
     const char* name() const override { return "ACF"; }
 private:
     AcfPitchTracker tracker;
-    float confidence = 0.0f;
 };
 
 class YinAdapter final : public IPitchTracker
@@ -155,7 +154,7 @@ double percentile (std::vector<double> values, double p)
     return values[index];
 }
 
-void runConfig (const Config& config, bool quick)
+bool runConfig (const Config& config, bool quick)
 {
     std::unique_ptr<IPitchTracker> tracker = config.yin
         ? std::unique_ptr<IPitchTracker> (new YinAdapter())
@@ -300,6 +299,7 @@ int main (int argc, char** argv)
         { "YIN-4096-48k-low40", true, 48000.0, 0, 40.0f, 2200.0f, 2.5f },
         { "YIN-8192-96k-2.5x-low40", true, 96000.0, 0, 40.0f, 2200.0f, 2.5f }
     }};
-    for (const auto& config : configs) runConfig (config, quick);
-    return 0;
+    bool ok = true;
+    for (const auto& config : configs) ok = runConfig (config, quick) && ok;
+    return ok ? 0 : 1;
 }
