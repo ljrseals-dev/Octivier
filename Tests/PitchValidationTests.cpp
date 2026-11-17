@@ -280,7 +280,7 @@ bool runConfig (const Config& config, bool quick)
         {
             if ((quick || wave >= 2) && snr != 1 && snr != 3) continue;
             const auto& s = stats[wave][snr];
-            const double denominator = std::max<std::uint64_t> (1, s.trials);
+            const double denominator = static_cast<double> (std::max<std::uint64_t> (1, s.trials));
             std::cout << config.label << ',' << tracker->name() << ','
                       << config.sampleRate << ',' << frameSize << ','
                       << config.minF0 << ',' << config.maxF0 << ','
