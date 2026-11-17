@@ -49,10 +49,13 @@ public:
 private:
     static constexpr int kGenerationSlots = 3;
     static constexpr int kShelfCount = 2;
+    static constexpr int kMeterFftOrder = 11;
+    static constexpr int kMeterFftSize = 1 << kMeterFftOrder;
     enum SlotState : int { SlotIdle = 0, SlotWriting = 1, SlotReady = 2, SlotReading = 3 };
     enum MailboxState : int { MailboxEmpty = 0, MailboxWriting = 1, MailboxReady = 2, MailboxReading = 3 };
 
     struct Biquad { float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f; };
+    static constexpr Biquad identityBiquad() noexcept { return { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f }; }
     struct BiquadState { float s1 = 0.0f, s2 = 0.0f; };
     struct Generation
     {
@@ -90,8 +93,15 @@ private:
 
     double currentSampleRate = 48000.0;
     int blockCounter = 0;
-    std::vector<float> pitchHistory, delayLeft, delayRight;
+    std::vector<float> pitchHistory, delayLeft, delayRight, lagScores;
+    std::unique_ptr<juce::dsp::FFT> meterFft;
+    std::array<float, kMeterFftSize> meterWindow {};
+    std::array<float, 2 * kMeterFftSize> meterBuffer {};
+    std::array<float, kMeterFftSize> meterRing {};
+    size_t meterWrite = 0;
+    std::uint64_t meterBlockCounter = 0;
     size_t historyWrite = 0, delayWrite = 0;
+    std::uint64_t modSampleCount = 0;
     float smoothedF0 = 0.0f, confidence = 0.0f;
     float smoothStrength = 0.85f, smoothFocus = 0.0f, smoothMix = 0.0f, smoothOutput = 1.0f;
     std::array<Generation, kGenerationSlots> generations;

@@ -74,6 +74,17 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     const auto historySize = static_cast<size_t> (juce::jmax (4096, static_cast<int> (currentSampleRate * 0.10)));
     pitchHistory.assign (historySize, 0.0f);
     historyWrite = delayWrite = 0;
+    modSampleCount = 0;
+    const int minPitchLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
+    const int maxPitchLag = juce::jmin (2048 / 2, static_cast<int> (currentSampleRate / kMinF0));
+    lagScores.assign (static_cast<size_t> (juce::jmax (0, maxPitchLag - minPitchLag + 1)), 0.0f);
+    meterFft = std::make_unique<juce::dsp::FFT> (kMeterFftOrder);
+    for (int i = 0; i < kMeterFftSize; ++i)
+        meterWindow[static_cast<size_t> (i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float> (i) / static_cast<float> (kMeterFftSize - 1));
+    meterRing.fill (0.0f);
+    meterBuffer.fill (0.0f);
+    meterWrite = 0;
+    meterBlockCounter = 0;
     const auto maxDelay = static_cast<size_t> (currentSampleRate * 0.10) + static_cast<size_t> (juce::jmax (samplesPerBlock, 32)) + 8;
     delayLeft.assign (maxDelay, 0.0f);
     delayRight.assign (maxDelay, 0.0f);
@@ -90,7 +101,7 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
         g.state.store (SlotIdle, std::memory_order_relaxed);
         g.generation.store (0, std::memory_order_relaxed);
         g.ackGen.store (0, std::memory_order_relaxed);
-        for (auto& c : g.harmonics) c = makePeak (currentSampleRate, 1000.0f, 1.0f, 0.0f);
+        for (auto& c : g.harmonics) c = identityBiquad();
         g.shelves[0] = makeHighShelf (currentSampleRate, 3200.0f, 0.707f, 0.0f);
         g.shelves[1] = makeHighShelf (currentSampleRate, 10000.0f, 0.707f, 0.0f);
         g.shelfDb[0] = g.shelfDb[1] = 0.0f;
@@ -137,24 +148,38 @@ float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
     if (gainToDb (rms) < gateDb) { confidence *= 0.75f; return 0.0f; }
     const int minLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
     const int maxLag = juce::jmin (frameN / 2, static_cast<int> (currentSampleRate / kMinF0));
-    double best = -1.0;
-    int bestLag = 0;
-    for (int lag = minLag; lag <= maxLag; ++lag)
+    const int lagCount = juce::jmax (0, maxLag - minLag + 1);
+    if (lagCount <= 0 || lagScores.size() < static_cast<size_t> (lagCount))
+    { confidence *= 0.8f; return 0.0f; }
+
+    float globalMax = 0.0f;
+    for (int k = 0; k < lagCount; ++k)
     {
+        const int lag = minLag + k;
         double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
         for (int i = 0; i < frameN - lag; i += 2)
         {
             const double a = x[static_cast<size_t> (i)], b = x[static_cast<size_t> (i + lag)];
             xy += a * b; xx += a * a; yy += b * b;
         }
-        const double score = xy / std::sqrt (xx * yy);
-        const double threshold = 0.35 + (1.0 - sensitivity) * 0.35;
-        if (score > threshold) { best = score; bestLag = lag; break; }
-        if (score > best) { best = score; bestLag = lag; }
+        const float score = static_cast<float> (xy / std::sqrt (xx * yy));
+        lagScores[static_cast<size_t> (k)] = score;
+        globalMax = std::max (globalMax, score);
     }
-    if (bestLag == 0 || best < 0.20) { confidence *= 0.8f; return 0.0f; }
+    if (globalMax < 0.20f) { confidence *= 0.8f; return 0.0f; }
+
+    // Select the shortest period whose normalized correlation is close to
+    // the strongest candidate; unlike break-on-threshold this evaluates the
+    // full search range and avoids accepting the first weak subharmonic peak.
+    const float acceptance = juce::jlimit (0.75f, 0.95f, 0.90f - 0.10f * sensitivity);
+    const float threshold = acceptance * globalMax;
+    int bestLag = 0;
+    for (int k = 0; k < lagCount; ++k)
+        if (lagScores[static_cast<size_t> (k)] >= threshold)
+        { bestLag = minLag + k; break; }
+    if (bestLag == 0) { confidence *= 0.8f; return 0.0f; }
     const float f0 = static_cast<float> (currentSampleRate / bestLag);
-    confidence = juce::jlimit (0.0f, 1.0f, static_cast<float> ((best - 0.15) / 0.75));
+    confidence = juce::jlimit (0.0f, 1.0f, (globalMax - 0.15f) / 0.75f);
     return (f0 >= kMinF0 && f0 <= kMaxF0) ? f0 : 0.0f;
 }
 
@@ -225,7 +250,7 @@ void OctivierAudioProcessor::buildGeneration (Generation& out, const CoeffReques
             case Mode::Square: db = odd ? req.evenBoost * req.strength * weight : 0.0f; break;
         }
         if (req.f0 < kMinF0 || req.f0 > kMaxF0 || hz < 25.0f || hz >= currentSampleRate * 0.47)
-            out.harmonics[static_cast<size_t> (h - 1)] = makePeak (currentSampleRate, 1000.0f, 1.0f, 0.0f);
+            out.harmonics[static_cast<size_t> (h - 1)] = identityBiquad();
         else
             out.harmonics[static_cast<size_t> (h - 1)] = makePeak (currentSampleRate, hz, juce::jlimit (2.0f, 14.0f, 7.5f + 5.0f * req.strength), db);
     }
@@ -316,6 +341,12 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 smoothedF0 += a * (estimate - smoothedF0);
             }
         }
+        else
+        {
+            // A closed gate invalidates the previous pitch immediately. This
+            // disables pitch-shaped filters and forces a fresh note to snap.
+            smoothedF0 = 0.0f;
+        }
         detected = smoothedF0;
     }
     if (detected > 0.0f) smoothedF0 = detected;
@@ -356,10 +387,10 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         publishRequest (req); // If mailbox is occupied, the next tracker/shelf tick retries.
     }
 
-    double oddEnergy = 0.0, evenEnergy = 0.0;
     const size_t delayCapacity = delayLeft.size();
     const int baseDelay = juce::jlimit (1, static_cast<int> (delayCapacity - 2), static_cast<int> (delayMs * 0.001 * currentSampleRate));
     const auto* gen = activeSlot >= 0 ? &generations[static_cast<size_t> (activeSlot)] : nullptr;
+    const std::uint64_t modBase = modSampleCount;
     for (int ch = 0; ch < channels; ++ch)
     {
         auto* data = buffer.getWritePointer (ch);
@@ -376,7 +407,6 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 wet = processBiquad (gen->shelves[0], states.shelves[0], wet);
                 wet = processBiquad (gen->shelves[1], states.shelves[1], wet);
             }
-            const float magnitude = std::abs (wet);
             if (character == 1 && charAmount > 0.0f)
             {
                 const float driven = std::tanh (wet * (1.0f + 4.0f * charAmount));
@@ -387,11 +417,12 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 const float driven = std::tanh (wet * (1.0f + 3.0f * charAmount));
                 wet = wet * (1.0f - charAmount) + (driven * (1.0f - 0.15f * std::abs (driven))) * charAmount;
             }
-            if ((i % 64) == 0) { if ((i / 64) & 1) oddEnergy += magnitude * magnitude; else evenEnergy += magnitude * magnitude; }
             const size_t write = delayWrite;
             const size_t read = (write + delayCapacity - static_cast<size_t> (baseDelay)) % delayCapacity;
             if (ch == 0) delayLeft[write] = wet; else delayRight[write] = wet;
-            const float mod = std::sin (2.0f * kPi * 0.31f * static_cast<float> (write) / static_cast<float> (currentSampleRate)) * modDepth * 0.001f * static_cast<float> (currentSampleRate);
+            const double modTimeSec = static_cast<double> (modBase + static_cast<std::uint64_t> (i)) / currentSampleRate;
+            const float mod = static_cast<float> (std::sin (2.0 * juce::MathConstants<double>::pi * 0.31 * modTimeSec))
+                              * modDepth * 0.001f * static_cast<float> (currentSampleRate);
             const size_t modRead = (write + delayCapacity - static_cast<size_t> (juce::jlimit (1.0f, static_cast<float> (delayCapacity - 2), static_cast<float> (baseDelay) + mod))) % delayCapacity;
             const float modDelayed = ch == 0 ? delayLeft[modRead] : delayRight[modRead];
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
@@ -404,8 +435,45 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     {
         // Intentionally neutral until a true input/output loudness-matching path is implemented.
     }
-    oddEnergyDb.store (gainToDb (static_cast<float> (std::sqrt (oddEnergy + 1.0e-12))), std::memory_order_relaxed);
-    evenEnergyDb.store (gainToDb (static_cast<float> (std::sqrt (evenEnergy + 1.0e-12))), std::memory_order_relaxed);
+    modSampleCount += static_cast<std::uint64_t> (numSamples);
+    // Measure odd/even harmonic energy from the rendered output. This is a
+    // diagnostic single-bin integration, updated at 20 Hz without allocation.
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float mono = channels == 1 ? buffer.getSample (0, i)
+                                         : 0.5f * (buffer.getSample (0, i) + buffer.getSample (1, i));
+        meterRing[meterWrite] = mono;
+        meterWrite = (meterWrite + 1) % static_cast<size_t> (kMeterFftSize);
+    }
+    meterBlockCounter += static_cast<std::uint64_t> (numSamples);
+    if (meterFft != nullptr
+        && smoothedF0 >= kMinF0 && smoothedF0 <= kMaxF0
+        && conf >= 0.20f
+        && meterBlockCounter >= static_cast<std::uint64_t> (currentSampleRate * 0.050))
+    {
+        meterBlockCounter = 0;
+        meterBuffer.fill (0.0f);
+        for (int i = 0; i < kMeterFftSize; ++i)
+        {
+            const auto idx = (meterWrite + static_cast<size_t> (i)) % static_cast<size_t> (kMeterFftSize);
+            meterBuffer[static_cast<size_t> (i)] = meterRing[idx] * meterWindow[static_cast<size_t> (i)];
+        }
+        meterFft->performFrequencyOnlyForwardTransform (meterBuffer.data());
+        const double binHz = currentSampleRate / static_cast<double> (kMeterFftSize);
+        const int maxBin = kMeterFftSize / 2;
+        double oddSq = 0.0, evenSq = 0.0;
+        for (int harmonic = 1; harmonic <= kHarmonics; ++harmonic)
+        {
+            const int bin = static_cast<int> (std::lround (static_cast<double> (harmonic) * smoothedF0 / binHz));
+            if (bin < 1 || bin > maxBin) continue;
+            const float mag = meterBuffer[static_cast<size_t> (bin)];
+            const double power = static_cast<double> (mag) * mag;
+            if ((harmonic & 1) != 0) oddSq += power;
+            else evenSq += power;
+        }
+        oddEnergyDb.store (gainToDb (static_cast<float> (std::sqrt (oddSq + 1.0e-12))), std::memory_order_relaxed);
+        evenEnergyDb.store (gainToDb (static_cast<float> (std::sqrt (evenSq + 1.0e-12))), std::memory_order_relaxed);
+    }
     juce::ignoreUnused (midi);
 }
 

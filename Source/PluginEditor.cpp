@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "Presets.h"
 
 OctivierAudioProcessorEditor::OctivierAudioProcessorEditor (OctivierAudioProcessor& p) : AudioProcessorEditor (&p), processor (p)
 {
@@ -10,23 +11,9 @@ OctivierAudioProcessorEditor::OctivierAudioProcessorEditor (OctivierAudioProcess
     presetBox.addItemList ({ "Manual", "Natural Vocal Double", "Bright Pop Double", "Warm Soul", "Bass Bite", "Sub Power", "Hollow Ghost", "Square Lead", "Wide Choir", "Freeze A3", "Live Tight", "Null / Bypass" }, 1);
     presetBox.onChange = [this]
     {
-        const int i = presetBox.getSelectedItemIndex();
-        auto set = [this] (const char* id, float value) { if (auto* param = processor.parameters.getParameter (id)) param->setValueNotifyingHost (param->convertTo0to1 (value)); };
-        switch (i)
-        {
-            case 1: set("strength",0.78f); set("focus",0.0f); set("delay",42.0f); set("width",0.55f); set("character",0.0f); set("characterAmt",0.0f); break;
-            case 2: set("strength",0.9f); set("focus",0.45f); set("delay",38.0f); set("width",0.7f); set("air",2.0f); break;
-            case 3: set("strength",0.65f); set("focus",-0.35f); set("character",1.0f); set("characterAmt",0.12f); break;
-            case 4: set("mode",3.0f); set("strength",0.65f); set("focus",-0.5f); break;
-            case 5: set("mode",1.0f); set("strength",0.8f); break;
-            case 6: set("mode",2.0f); set("strength",0.8f); break;
-            case 7: set("mode",3.0f); set("strength",0.9f); break;
-            case 8: set("strength",0.7f); set("width",0.9f); set("delay",52.0f); break;
-            case 9: set("freeze",1.0f); set("manualF0",220.0f); break;
-            case 10: set("delay",18.0f); set("width",0.2f); set("modDepth",0.0f); break;
-            case 11: set("strength",0.0f); set("mix",1.0f); break;
-            default: break;
-        }
+        const int selected = presetBox.getSelectedItemIndex();
+        if (selected <= 0) return; // Manual preserves the current parameter state.
+        octivier::presets::apply (selected - 1, processor.parameters);
     };
     addAndMakeVisible (presetBox);
     saveButton.onClick = [this] { auto xml = processor.parameters.copyState().createXml();
