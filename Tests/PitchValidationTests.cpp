@@ -250,6 +250,7 @@ void runConfig (const Config& config, bool quick)
                       << signalName (signals[static_cast<std::size_t> (wave)]) << ','
                       << kSnrDb[static_cast<std::size_t> (snr)] << ','
                       << s.trials << ',' << s.voiced / denominator << ','
+                      << (1.0 - s.voiced / denominator) << ','
                       << s.correct / denominator << ',' << s.octave / denominator << ','
                       << s.other / denominator << ','
                       << percentile (s.absoluteCents, 0.50) << ','
