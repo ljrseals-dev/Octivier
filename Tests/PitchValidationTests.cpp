@@ -316,7 +316,7 @@ int main (int argc, char** argv)
                  "other_error_rate,median_abs_cents,p95_abs_cents,mean_confidence,mean_us_per_estimate,"
                  "first_valid_estimate_ms,confidence_bucket_counts\n";
 
-    const std::array<Config, 10> configs {{
+    const std::array<Config, 11> configs {{
         { "ACF-2048-shipped", false, 48000.0, 2048, 55.0f, 1200.0f, 0.0f },
         { "ACF-2048-matched", false, 48000.0, 2048, 55.0f, 2200.0f, 0.0f },
         { "YIN-2048-2.0x", true, 48000.0, 0, 55.0f, 2200.0f, 2.0f },
@@ -325,6 +325,7 @@ int main (int argc, char** argv)
         { "ACF-4096-96k", false, 96000.0, 4096, 55.0f, 2200.0f, 0.0f },
         { "YIN-4096-96k-2.0x", true, 96000.0, 0, 55.0f, 2200.0f, 2.0f },
         { "ACF-8192-96k-experimental", false, 96000.0, 8192, 55.0f, 2200.0f, 0.0f },
+        { "YIN-8192-96k-2.5x", true, 96000.0, 0, 55.0f, 2200.0f, 2.5f },
         { "YIN-4096-48k-low40", true, 48000.0, 0, 40.0f, 2200.0f, 2.5f },
         { "YIN-8192-96k-2.5x-low40", true, 96000.0, 0, 40.0f, 2200.0f, 2.5f }
     }};
