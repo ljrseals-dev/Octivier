@@ -113,7 +113,6 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
 
     for (int i = 0; i < count; ++i)
     {
-        const int onset = count / 2;
         if (kind == Signal::SawAdsr && i < onset)
         {
             signal[static_cast<std::size_t> (i)] = 0.0f;
@@ -287,6 +286,7 @@ bool runConfig (const Config& config, bool quick)
                       << signalName (signals[static_cast<std::size_t> (wave)]) << ','
                       << kSnrDb[static_cast<std::size_t> (snr)] << ','
                       << s.trials << ',' << s.voiced / denominator << ','
+                      << (1.0 - s.voiced / denominator) << ','
                       << s.correct / denominator << ',' << s.octave / denominator << ','
                       << (s.octaveFlipPairs > 0
                               ? static_cast<double> (s.octaveFlips) / s.octaveFlipPairs : -1.0) << ','
@@ -312,7 +312,7 @@ int main (int argc, char** argv)
 {
     const bool quick = argc > 1 && std::string (argv[1]) == "--quick";
     std::cout << "config,tracker,sample_rate,frame_size,min_f0,max_f0,period_multiplier,tau_min,tau_max,"
-                 "frame_duration_ms,signal,snr_db,trials,voiced_rate,correct_rate,octave_error_rate,"
+                 "frame_duration_ms,signal,snr_db,trials,voiced_rate,unvoiced_rate,correct_rate,octave_error_rate,octave_flip_rate,"
                  "other_error_rate,median_abs_cents,p95_abs_cents,mean_confidence,mean_us_per_estimate,"
                  "first_valid_estimate_ms,confidence_bucket_counts\n";
 
