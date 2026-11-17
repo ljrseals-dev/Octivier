@@ -17,9 +17,8 @@ bool YinPitchTracker::prepare (double sr, float minF0Hz, float maxF0Hz,
                                float multiplier)
 {
     prepared = false;
-    sampleRate = sr;
-    minF0 = minF0Hz;
-    maxF0 = maxF0Hz;
+    sampleRate = 0.0;
+    minF0 = maxF0 = 0.0f;
     periodMultiplier = multiplier;
     frameSize = tauMin = tauMax = 0;
     difference.clear();
@@ -29,6 +28,7 @@ bool YinPitchTracker::prepare (double sr, float minF0Hz, float maxF0Hz,
         || ! std::isfinite (minF0Hz) || ! std::isfinite (maxF0Hz)
         || ! std::isfinite (multiplier)
         || minF0Hz <= 0.0f || maxF0Hz <= minF0Hz
+        || static_cast<double> (maxF0Hz) >= sr * 0.5
         || multiplier < 2.0f)
         return false;
 
@@ -50,10 +50,12 @@ bool YinPitchTracker::prepare (double sr, float minF0Hz, float maxF0Hz,
 
     const int low = std::max (2, static_cast<int> (minPeriod));
     const int high = std::min (size / 2, static_cast<int> (maxPeriod));
-    // A valid tracker must actually cover the requested minimum frequency.
     if (high <= low || high < static_cast<int> (maxPeriod))
         return false;
 
+    sampleRate = sr;
+    minF0 = minF0Hz;
+    maxF0 = maxF0Hz;
     frameSize = size;
     tauMin = low;
     tauMax = high;
@@ -66,15 +68,26 @@ bool YinPitchTracker::prepare (double sr, float minF0Hz, float maxF0Hz,
 float YinPitchTracker::estimate (const float* frame, int suppliedFrameSize,
                                  float gateDb, float& confidence) noexcept
 {
-    if (! prepared || frame == nullptr || suppliedFrameSize != frameSize)
+    if (! prepared || frame == nullptr || suppliedFrameSize != frameSize
+        || ! std::isfinite (gateDb))
     {
         confidence = 0.0f;
         return 0.0f;
     }
+    if (! std::isfinite (confidence))
+        confidence = 0.0f;
 
     double energy = 0.0, mean = 0.0;
     for (int i = 0; i < frameSize; ++i)
-        mean += frame[static_cast<std::size_t> (i)];
+    {
+        const float sample = frame[static_cast<std::size_t> (i)];
+        if (! std::isfinite (sample))
+        {
+            confidence = 0.0f;
+            return 0.0f;
+        }
+        mean += sample;
+    }
     mean /= frameSize;
 
     for (int i = 0; i < frameSize; ++i)
@@ -84,7 +97,7 @@ float YinPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     }
     const float rms = static_cast<float> (std::sqrt (energy / frameSize));
     const float levelDb = 20.0f * std::log10 (std::max (rms, 1.0e-6f));
-    if (levelDb < gateDb)
+    if (! std::isfinite (levelDb) || levelDb < gateDb)
     {
         confidence *= 0.75f;
         return 0.0f;
@@ -154,9 +167,6 @@ float YinPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             refined += 0.5 * (left - right) / denominator;
     }
 
-    // Integer-lag quantization can place a boundary estimate up to half a
-    // sample outside the nominal period interval (e.g. 55 Hz at 48 kHz).
-    // Accept that nearest-bin estimate, then clamp only the reported edge Hz.
     const double minPeriod = sampleRate / static_cast<double> (maxF0);
     const double maxPeriod = sampleRate / static_cast<double> (minF0);
     if (refined < minPeriod - 0.5 || refined > maxPeriod + 0.5)

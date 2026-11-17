@@ -109,7 +109,7 @@ int main (int argc, char** argv)
         const float legacyHz = legacyEstimate (frame.data(), sampleRate, -55.0f,
                                                 0.62f, legacyConfidence);
         const float extractedHz = extracted.estimate (frame.data(), frameSize, -55.0f,
-                                                        0.62f, extractedConfidence);
+                                                        0.62f, extractedConfidence, AcfPitchTracker::PeakSelection::LegacyShortestAboveThreshold);
         if (dumpCsv)
             std::cout << compared << ',' << legacyHz << ',' << legacyConfidence << ','
                       << extractedHz << ',' << extractedConfidence << '\n';

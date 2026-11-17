@@ -9,15 +9,15 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
                                float minF0Hz, float maxF0Hz)
 {
     prepared = false;
-    sampleRate = sr;
-    minF0 = minF0Hz;
-    maxF0 = maxF0Hz;
-    frameSize = requestedFrameSize;
+    sampleRate = 0.0;
+    minF0 = maxF0 = 0.0f;
+    frameSize = minLag = maxLag = 0;
 
     if (! std::isfinite (sr) || sr <= 0.0
         || sr > static_cast<double> (std::numeric_limits<int>::max())
         || ! std::isfinite (minF0Hz) || ! std::isfinite (maxF0Hz)
         || minF0Hz <= 0.0f || minF0Hz >= maxF0Hz
+        || static_cast<double> (maxF0Hz) >= sr * 0.5
         || requestedFrameSize < 4)
         return false;
 
@@ -28,11 +28,24 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
         || maxPeriod > static_cast<double> (std::numeric_limits<int>::max()))
         return false;
 
-    minLag = std::max (2, static_cast<int> (maxPeriod));
-    maxLag = std::min (requestedFrameSize / 2, static_cast<int> (minPeriod));
-    if (maxLag <= minLag)
+    // Preserve the original integer lag bounds, but never claim a prepared
+    // configuration if half the frame cannot reach the requested low F0.
+    const int requiredMaxLag = static_cast<int> (std::ceil (minPeriod));
+    if (requestedFrameSize / 2 < requiredMaxLag)
         return false;
 
+    const int candidateMinLag = std::max (2, static_cast<int> (maxPeriod));
+    const int candidateMaxLag = std::min (requestedFrameSize / 2,
+                                          static_cast<int> (minPeriod));
+    if (candidateMaxLag <= candidateMinLag)
+        return false;
+
+    sampleRate = sr;
+    minF0 = minF0Hz;
+    maxF0 = maxF0Hz;
+    frameSize = requestedFrameSize;
+    minLag = candidateMinLag;
+    maxLag = candidateMaxLag;
     lagScores.assign (static_cast<std::size_t> (maxLag - minLag + 1), 0.0f);
     centeredFrame.assign (static_cast<std::size_t> (requestedFrameSize), 0.0f);
     prepared = true;
@@ -41,27 +54,39 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
 
 float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
                                  float gateDb, float sensitivity,
-                                 float& confidence) noexcept
+                                 float& confidence, PeakSelection selection) noexcept
 {
-    if (! prepared || frame == nullptr || suppliedFrameSize != frameSize)
+    if (! prepared || frame == nullptr || suppliedFrameSize != frameSize
+        || ! std::isfinite (gateDb) || ! std::isfinite (sensitivity))
+    {
+        confidence = 0.0f;
         return 0.0f;
+    }
+    if (! std::isfinite (confidence))
+        confidence = 0.0f;
 
-    // Preserve the shipped ACF sequence: mean removal, RMS gate, then
-    // normalized downsampled correlation over the full lag range.
     double energy = 0.0, mean = 0.0;
     for (int i = 0; i < frameSize; ++i)
-        mean += frame[static_cast<std::size_t> (i)];
+    {
+        const float sample = frame[static_cast<std::size_t> (i)];
+        if (! std::isfinite (sample))
+        {
+            confidence = 0.0f;
+            return 0.0f;
+        }
+        mean += sample;
+    }
     mean /= frameSize;
 
     for (int i = 0; i < frameSize; ++i)
     {
         const float value = frame[static_cast<std::size_t> (i)] - static_cast<float> (mean);
         centeredFrame[static_cast<std::size_t> (i)] = value;
-        energy += value * value;
+        energy += static_cast<double> (value) * value;
     }
     const float rms = static_cast<float> (std::sqrt (energy / frameSize));
     const float levelDb = 20.0f * std::log10 (std::max (rms, 1.0e-6f));
-    if (levelDb < gateDb)
+    if (! std::isfinite (levelDb) || levelDb < gateDb)
     {
         confidence *= 0.75f;
         return 0.0f;
@@ -91,7 +116,7 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
         lagScores[static_cast<std::size_t> (k)] = score;
         globalMax = std::max (globalMax, score);
     }
-    if (globalMax < 0.20f)
+    if (! std::isfinite (globalMax) || globalMax < 0.20f)
     {
         confidence *= 0.8f;
         return 0.0f;
@@ -99,20 +124,68 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
 
     const float acceptance = std::clamp (0.90f - 0.10f * sensitivity, 0.75f, 0.95f);
     const float threshold = acceptance * globalMax;
+    int bestIndex = -1;
     int bestLag = 0;
-    for (int k = 0; k < lagCount; ++k)
-        if (lagScores[static_cast<std::size_t> (k)] >= threshold)
+    float bestScore = -std::numeric_limits<float>::infinity();
+
+    if (selection == PeakSelection::LegacyShortestAboveThreshold)
+    {
+        // Exact pre-fix selection path retained for the extraction equivalence
+        // test; the plugin and benchmark use strongest-local-peak selection.
+        for (int k = 0; k < lagCount; ++k)
+            if (lagScores[static_cast<std::size_t> (k)] >= threshold)
+            {
+                bestIndex = k;
+                bestLag = minLag + k;
+                bestScore = lagScores[static_cast<std::size_t> (k)];
+                break;
+            }
+    }
+    else
+    {
+        for (int k = 0; k < lagCount; ++k)
         {
-            bestLag = minLag + k;
-            break;
+            const float score = lagScores[static_cast<std::size_t> (k)];
+            const float left = k > 0 ? lagScores[static_cast<std::size_t> (k - 1)]
+                                     : -std::numeric_limits<float>::infinity();
+            const float right = k + 1 < lagCount
+                ? lagScores[static_cast<std::size_t> (k + 1)]
+                : -std::numeric_limits<float>::infinity();
+            const bool localMaximum = score >= left && score >= right;
+            if (! localMaximum || score < threshold)
+                continue;
+
+            // A shorter lag is only a tie-breaker, not the selection rule.
+            if (score > bestScore + 1.0e-6f)
+            {
+                bestIndex = k;
+                bestLag = minLag + k;
+                bestScore = score;
+            }
         }
-    if (bestLag == 0)
+    }
+
+    if (bestIndex < 0)
     {
         confidence *= 0.8f;
         return 0.0f;
     }
 
-    const float f0 = static_cast<float> (sampleRate / bestLag);
-    confidence = std::clamp ((globalMax - 0.15f) / 0.75f, 0.0f, 1.0f);
-    return (f0 >= minF0 && f0 <= maxF0) ? f0 : 0.0f;
+    double refinedLag = static_cast<double> (bestLag);
+    if (selection == PeakSelection::StrongestLocalPeak
+        && bestIndex > 0 && bestIndex + 1 < lagCount)
+    {
+        const double left = lagScores[static_cast<std::size_t> (bestIndex - 1)];
+        const double centre = lagScores[static_cast<std::size_t> (bestIndex)];
+        const double right = lagScores[static_cast<std::size_t> (bestIndex + 1)];
+        const double denominator = left - 2.0 * centre + right;
+        if (std::abs (denominator) > 1.0e-12)
+            refinedLag += std::clamp (0.5 * (left - right) / denominator, -0.5, 0.5);
+    }
+
+    const float f0 = static_cast<float> (sampleRate / refinedLag);
+    confidence = std::clamp (((selection == PeakSelection::LegacyShortestAboveThreshold
+                                  ? globalMax : bestScore) - 0.15f) / 0.75f,
+                             0.0f, 1.0f);
+    return (std::isfinite (f0) && f0 >= minF0 && f0 <= maxF0) ? f0 : 0.0f;
 }

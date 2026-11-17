@@ -67,9 +67,13 @@ int main()
     }
 
     AcfPitchTracker acf;
-    if (! acf.prepare (48000.0, 2048, 55.0f, 1200.0f))
+    if (! acf.prepare (48000.0, 2048, 55.0f, 1200.0f)
+        || acf.prepare (96000.0, 2048, 55.0f, 1200.0f)
+        || acf.prepare (48000.0, 2048, 55.0f, 24000.0f)
+        || acf.prepare (48000.0, 64, 55.0f, 1200.0f)
+        || acf.prepare (std::numeric_limits<double>::quiet_NaN(), 2048, 55.0f, 1200.0f))
     {
-        std::cerr << "FAIL: shipped ACF baseline did not prepare\n";
+        std::cerr << "FAIL: ACF accepted an invalid or low-F0-unreachable configuration\n";
         ok = false;
     }
 

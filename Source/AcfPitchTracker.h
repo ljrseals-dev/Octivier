@@ -7,12 +7,21 @@
 class AcfPitchTracker final
 {
 public:
+    enum class PeakSelection
+    {
+        // Kept only as an extraction-regression reference for the pre-fix ACF.
+        LegacyShortestAboveThreshold,
+        // Select the strongest local correlation peak; ties prefer shorter lag.
+        StrongestLocalPeak
+    };
+
     bool prepare (double sampleRate, int frameSize,
                   float minF0Hz = 55.0f, float maxF0Hz = 1200.0f);
 
     float estimate (const float* frame, int frameSize,
                     float gateDb, float sensitivity,
-                    float& confidence) noexcept;
+                    float& confidence,
+                    PeakSelection selection = PeakSelection::StrongestLocalPeak) noexcept;
 
     int getFrameSize() const noexcept { return frameSize; }
     int getTauMin() const noexcept { return minLag; }

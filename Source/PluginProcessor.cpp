@@ -71,7 +71,10 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     // Reconfiguration is a non-real-time lifecycle operation: stop the worker
     // before touching any data it can access, then restart only after reset.
     if (worker != nullptr) worker->stopThread (-1);
-    currentSampleRate = juce::jmax (sampleRate, 8000.0);
+    // A malformed host rate must not flow into integer sizing, delay allocation,
+    // or DSP coefficient calculations. Fall back to a conservative supported rate.
+    currentSampleRate = std::isfinite (sampleRate) && sampleRate >= 8000.0 && sampleRate <= 768000.0
+        ? sampleRate : 48000.0;
     const auto historySize = static_cast<size_t> (juce::jmax (4096, static_cast<int> (currentSampleRate * 0.10)));
     pitchHistory.assign (historySize, 0.0f);
     historyWrite = delayWrite = 0;
@@ -317,8 +320,11 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const float sensitivity = readParam (parameters, "tracking");
     float detected = 0.0f;
     blockCounter += numSamples;
-    const bool pitchUpdateDue = blockCounter >= static_cast<int> (currentSampleRate * 0.010);
-    if (pitchUpdateDue) blockCounter = 0;
+    const int pitchUpdateInterval = std::max (1, static_cast<int> (std::lround (currentSampleRate * 0.010)));
+    const std::int64_t accumulatedSamples = static_cast<std::int64_t> (blockCounter) + numSamples;
+    const bool pitchUpdateDue = accumulatedSamples >= pitchUpdateInterval;
+    // Preserve excess samples instead of throwing away the scheduler remainder.
+    blockCounter = static_cast<int> (accumulatedSamples % pitchUpdateInterval);
     if (freeze) detected = readParam (parameters, "manualF0");
     else if (pitchUpdateDue)
     {
