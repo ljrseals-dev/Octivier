@@ -88,7 +88,7 @@ const char* signalName (Signal signal)
 }
 
 void synthesize (std::vector<float>& signal, double sr, double hz,
-                 Signal kind, double phase, std::mt19937& rng)
+                 Signal kind, double phase, int onset, std::mt19937& rng)
 {
     const int count = static_cast<int> (signal.size());
     if (kind == Signal::KarplusStrong)
@@ -98,7 +98,6 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
         std::uniform_real_distribution<float> initial (-1.0f, 1.0f);
         for (auto& sample : delay) sample = initial (rng);
         int index = 0;
-        const int onset = count / 2;
         for (int i = 0; i < count; ++i)
         {
             if (i < onset) { signal[static_cast<std::size_t> (i)] = 0.0f; continue; }
@@ -141,7 +140,7 @@ struct Stats
 {
     std::uint64_t trials = 0, voiced = 0, correct = 0, octave = 0, other = 0;
     double confidenceSum = 0.0, microsecondsSum = 0.0, firstValidMsSum = 0.0;
-    std::uint64_t firstValidCount = 0;
+    std::uint64_t firstValidCount = 0, octaveFlips = 0, octaveFlipPairs = 0;
     std::array<std::uint64_t, 10> confidenceBuckets {};
     std::vector<double> absoluteCents;
 };
@@ -168,6 +167,9 @@ bool runConfig (const Config& config, bool quick)
 
     const int frameSize = tracker->getFrameSize();
     const int preRoll = frameSize;
+    const int hopSamples = std::max (1, static_cast<int> (std::lround (config.sampleRate * 0.010)));
+    const int updates = quick ? 2 : 4;
+    const int totalSamples = preRoll + frameSize + (updates - 1) * hopSamples;
     const double frameDurationMs = 1000.0 * frameSize / config.sampleRate;
     const std::array<Signal, 4> signals {{
         Signal::Sine, Signal::Saw, Signal::KarplusStrong, Signal::SawAdsr
@@ -178,7 +180,7 @@ bool runConfig (const Config& config, bool quick)
     const int phaseCount = quick ? 1 : static_cast<int> (phases.size());
     Stats stats[4][5];
 
-    std::vector<float> clean (static_cast<std::size_t> (2 * frameSize));
+    std::vector<float> clean (static_cast<std::size_t> (totalSamples));
     std::vector<float> noise (clean.size());
     std::vector<float> mixed (clean.size());
 
@@ -193,19 +195,20 @@ bool runConfig (const Config& config, bool quick)
                     midi * 7919 + wave * 101 + phaseIndex * 65537);
                 std::mt19937 rng (seed);
                 synthesize (clean, config.sampleRate, hz, signals[static_cast<std::size_t> (wave)],
-                            phases[static_cast<std::size_t> (phaseIndex)], rng);
+                            phases[static_cast<std::size_t> (phaseIndex)], preRoll, rng);
                 std::normal_distribution<float> normal (0.0f, 1.0f);
                 double signalPower = 0.0, noisePower = 0.0;
                 for (std::size_t i = 0; i < clean.size(); ++i)
                     noise[i] = normal (rng);
-                for (int i = preRoll; i < preRoll + frameSize; ++i)
-                {
-                    const auto index = static_cast<std::size_t> (i);
-                    signalPower += static_cast<double> (clean[index]) * clean[index];
-                    noisePower += static_cast<double> (noise[index]) * noise[index];
-                }
-                signalPower /= frameSize;
-                noisePower /= frameSize;
+                for (int update = 0; update < updates; ++update)
+                    for (int i = 0; i < frameSize; ++i)
+                    {
+                        const auto index = static_cast<std::size_t> (preRoll + update * hopSamples + i);
+                        signalPower += static_cast<double> (clean[index]) * clean[index];
+                        noisePower += static_cast<double> (noise[index]) * noise[index];
+                    }
+                signalPower /= static_cast<double> (frameSize * updates);
+                noisePower /= static_cast<double> (frameSize * updates);
 
                 for (int snrIndex = 0; snrIndex < static_cast<int> (kSnrDb.size()); ++snrIndex)
                 {
@@ -216,29 +219,53 @@ bool runConfig (const Config& config, bool quick)
                     for (std::size_t i = 0; i < mixed.size(); ++i)
                         mixed[i] = clean[i] + scale * noise[i];
 
-                    float confidence = 0.0f;
-                    const auto begin = std::chrono::steady_clock::now();
-                    const float detected = tracker->estimate (mixed.data() + preRoll,
-                                                               frameSize, -90.0f, confidence);
-                    const auto end = std::chrono::steady_clock::now();
-                    auto& s = stats[wave][snrIndex];
-                    ++s.trials;
-                    s.microsecondsSum += std::chrono::duration<double, std::micro> (end - begin).count();
-                    s.confidenceSum += confidence;
-                    const int bucket = std::clamp (static_cast<int> (confidence * 10.0f), 0, 9);
-                    ++s.confidenceBuckets[static_cast<std::size_t> (bucket)];
-                    if (detected > 0.0f)
+                    float confidence = 0.0f, previousPitch = 0.0f;
+                    bool havePreviousPitch = false, firstValid = false;
+                    for (int update = 0; update < updates; ++update)
                     {
-                        ++s.voiced;
-                        ++s.firstValidCount;
-                        s.firstValidMsSum += frameDurationMs;
-                        const double cents = std::abs (1200.0 * std::log2 (detected / hz));
-                        s.absoluteCents.push_back (cents);
-                        if (cents <= 50.0) ++s.correct;
-                        else if (std::abs (cents - 1200.0) <= 80.0
-                                 || std::abs (cents - 2400.0) <= 80.0)
-                            ++s.octave;
-                        else ++s.other;
+                        const auto begin = std::chrono::steady_clock::now();
+                        const float detected = tracker->estimate (
+                            mixed.data() + preRoll + update * hopSamples,
+                            frameSize, -90.0f, confidence);
+                        const auto end = std::chrono::steady_clock::now();
+                        auto& s = stats[wave][snrIndex];
+                        ++s.trials;
+                        s.microsecondsSum += std::chrono::duration<double, std::micro> (end - begin).count();
+                        s.confidenceSum += confidence;
+                        const int bucket = std::clamp (static_cast<int> (confidence * 10.0f), 0, 9);
+                        ++s.confidenceBuckets[static_cast<std::size_t> (bucket)];
+                        if (detected > 0.0f)
+                        {
+                            ++s.voiced;
+                            if (! firstValid)
+                            {
+                                firstValid = true;
+                                ++s.firstValidCount;
+                                s.firstValidMsSum += 1000.0 * (frameSize + update * hopSamples)
+                                                     / config.sampleRate;
+                            }
+                            const double cents = std::abs (1200.0 * std::log2 (detected / hz));
+                            s.absoluteCents.push_back (cents);
+                            if (cents <= 50.0) ++s.correct;
+                            else if (std::abs (cents - 1200.0) <= 80.0
+                                     || std::abs (cents - 2400.0) <= 80.0)
+                                ++s.octave;
+                            else ++s.other;
+
+                            if (havePreviousPitch)
+                            {
+                                ++s.octaveFlipPairs;
+                                const double jump = std::abs (1200.0 * std::log2 (detected / previousPitch));
+                                if (std::abs (jump - 1200.0) <= 80.0)
+                                    ++s.octaveFlips;
+                            }
+                            previousPitch = detected;
+                            havePreviousPitch = true;
+                        }
+                        else
+                        {
+                            havePreviousPitch = false;
+                        }
                     }
                 }
             }
@@ -261,6 +288,8 @@ bool runConfig (const Config& config, bool quick)
                       << kSnrDb[static_cast<std::size_t> (snr)] << ','
                       << s.trials << ',' << s.voiced / denominator << ','
                       << s.correct / denominator << ',' << s.octave / denominator << ','
+                      << (s.octaveFlipPairs > 0
+                              ? static_cast<double> (s.octaveFlips) / s.octaveFlipPairs : -1.0) << ','
                       << s.other / denominator << ','
                       << percentile (s.absoluteCents, 0.50) << ','
                       << percentile (s.absoluteCents, 0.95) << ','
