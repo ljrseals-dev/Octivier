@@ -14,6 +14,19 @@ if (OCTIVIER_PROTOCOL_TESTS_ONLY)
         target_link_libraries(OctivierSlotOwnershipTests PRIVATE Threads::Threads)
     endif()
     add_test(NAME OctivierSlotOwnershipTests COMMAND OctivierSlotOwnershipTests)
+
+    add_executable(AcfBehaviorPreservationTests
+        Tests/AcfBehaviorPreservationTests.cpp
+        Source/AcfPitchTracker.cpp
+    )
+    target_include_directories(AcfBehaviorPreservationTests PRIVATE Source)
+    target_compile_features(AcfBehaviorPreservationTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(AcfBehaviorPreservationTests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(AcfBehaviorPreservationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME AcfBehaviorPreservationTests COMMAND AcfBehaviorPreservationTests)
     return()
 endif()
 
@@ -45,6 +58,7 @@ juce_add_plugin(Octivier
 target_sources(Octivier PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/AcfPitchTracker.cpp
 )
 target_compile_features(Octivier PRIVATE cxx_std_17)
 target_compile_definitions(Octivier PUBLIC
@@ -63,7 +77,7 @@ option(OCTIVIER_BUILD_TESTS "Build JUCE-backed smoke tests" OFF)
 if (OCTIVIER_BUILD_TESTS)
     enable_testing()
     juce_add_console_app(OctivierSmokeTests PRODUCT_NAME "Octivier Smoke Tests")
-    target_sources(OctivierSmokeTests PRIVATE Tests/SmokeTests.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+    target_sources(OctivierSmokeTests PRIVATE Tests/SmokeTests.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/AcfPitchTracker.cpp)
     target_compile_features(OctivierSmokeTests PRIVATE cxx_std_17)
     target_compile_definitions(OctivierSmokeTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Octivier")
     target_link_libraries(OctivierSmokeTests PRIVATE juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+#include "AcfPitchTracker.h"
 
 /** Octivier Harmonic Sculptor audio processor.
     Harmonic-timbre sculptor; it does not guarantee octave translation.
@@ -93,7 +94,8 @@ private:
 
     double currentSampleRate = 48000.0;
     int blockCounter = 0;
-    std::vector<float> pitchHistory, delayLeft, delayRight, lagScores;
+    std::vector<float> pitchHistory, delayLeft, delayRight;
+    AcfPitchTracker acfTracker;
     std::unique_ptr<juce::dsp::FFT> meterFft;
     std::array<float, kMeterFftSize> meterWindow {};
     std::array<float, 2 * kMeterFftSize> meterBuffer {};
