@@ -25,7 +25,7 @@ public:
     virtual ~IPitchTracker() = default;
     virtual bool prepare (double sr, float minF0, float maxF0, int frameSize,
                           float periodMultiplier) = 0;
-    virtual float estimate (const float* frame, int size, float gateDb, float& confidence) = 0;
+    virtual float estimate (const float* frame, int size, float gateDb, float sensitivity, float& confidence) = 0;
     virtual int getFrameSize() const = 0;
     virtual int getTauMin() const = 0;
     virtual int getTauMax() const = 0;
@@ -37,8 +37,8 @@ class AcfAdapter final : public IPitchTracker
 public:
     bool prepare (double sr, float lo, float hi, int size, float) override
     { return tracker.prepare (sr, size, lo, hi); }
-    float estimate (const float* frame, int size, float gate, float& conf) override
-    { return tracker.estimate (frame, size, gate, conf); }
+    float estimate (const float* frame, int size, float gate, float sensitivity, float& conf) override
+    { return tracker.estimate (frame, size, gate, sensitivity, conf); }
     int getFrameSize() const override { return tracker.getFrameSize(); }
     int getTauMin() const override { return tracker.getTauMin(); }
     int getTauMax() const override { return tracker.getTauMax(); }
@@ -52,7 +52,7 @@ class YinAdapter final : public IPitchTracker
 public:
     bool prepare (double sr, float lo, float hi, int, float multiplier) override
     { return tracker.prepare (sr, lo, hi, multiplier); }
-    float estimate (const float* frame, int size, float gate, float& conf) override
+    float estimate (const float* frame, int size, float gate, float, float& conf) override
     { return tracker.estimate (frame, size, gate, conf); }
     int getFrameSize() const override { return tracker.getFrameSize(); }
     int getTauMin() const override { return tracker.getTauMin(); }
@@ -161,7 +161,7 @@ bool runConfig (const Config& config, bool quick)
                             config.acfFrameSize, config.periodMultiplier))
     {
         std::cerr << "prepare_failed," << config.label << '\n';
-        return;
+        return false;
     }
 
     const int frameSize = tracker->getFrameSize();
@@ -225,7 +225,7 @@ bool runConfig (const Config& config, bool quick)
                         const auto begin = std::chrono::steady_clock::now();
                         const float detected = tracker->estimate (
                             mixed.data() + preRoll + update * hopSamples,
-                            frameSize, -90.0f, confidence);
+                            frameSize, -90.0f, 0.62f, confidence);
                         const auto end = std::chrono::steady_clock::now();
                         auto& s = stats[wave][snrIndex];
                         ++s.trials;
@@ -305,6 +305,7 @@ bool runConfig (const Config& config, bool quick)
             std::cout << "\"\n";
         }
     }
+    return true;
 }
 }
 
