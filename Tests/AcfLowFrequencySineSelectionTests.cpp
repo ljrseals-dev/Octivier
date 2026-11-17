@@ -64,7 +64,7 @@ bool checkSine (double frequency, double phase)
     const int selected = firstLocalPeakAboveThreshold (scores.data(), candidateCount, threshold);
     if (selected < 0)
     {
-        std::cerr << "No local peak for " << frequency << " Hz, phase " << phase << '\\n';
+        std::cerr << "No local peak for " << frequency << " Hz, phase " << phase << '\n';
         return false;
     }
 
@@ -94,7 +94,7 @@ bool checkSine (double frequency, double phase)
         std::cerr << "Wrong ACF sine selection: target=" << frequency
                   << " detected=" << detected << " cents=" << cents
                   << " legacyLag=" << (legacy < 0 ? 0 : minLag + legacy)
-                  << " selectedLag=" << refinedLag << '\\n';
+                  << " selectedLag=" << refinedLag << '\n';
         return false;
     }
     return true;
