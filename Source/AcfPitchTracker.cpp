@@ -21,9 +21,15 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
         || requestedFrameSize < 4)
         return false;
 
-    minLag = std::max (2, static_cast<int> (sr / maxF0Hz));
-    maxLag = std::min (requestedFrameSize / 2,
-                       static_cast<int> (sr / minF0Hz));
+    const double minPeriod = sr / static_cast<double> (minF0Hz);
+    const double maxPeriod = sr / static_cast<double> (maxF0Hz);
+    if (! std::isfinite (minPeriod) || ! std::isfinite (maxPeriod)
+        || minPeriod > static_cast<double> (std::numeric_limits<int>::max())
+        || maxPeriod > static_cast<double> (std::numeric_limits<int>::max()))
+        return false;
+
+    minLag = std::max (2, static_cast<int> (maxPeriod));
+    maxLag = std::min (requestedFrameSize / 2, static_cast<int> (minPeriod));
     if (maxLag <= minLag)
         return false;
 
