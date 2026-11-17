@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
                                float minF0Hz, float maxF0Hz)
@@ -14,6 +15,7 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
     frameSize = requestedFrameSize;
 
     if (! std::isfinite (sr) || sr <= 0.0
+        || sr > static_cast<double> (std::numeric_limits<int>::max())
         || ! std::isfinite (minF0Hz) || ! std::isfinite (maxF0Hz)
         || minF0Hz <= 0.0f || minF0Hz >= maxF0Hz
         || requestedFrameSize < 4)
@@ -26,6 +28,7 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
         return false;
 
     lagScores.assign (static_cast<std::size_t> (maxLag - minLag + 1), 0.0f);
+    centeredFrame.assign (static_cast<std::size_t> (requestedFrameSize), 0.0f);
     prepared = true;
     return true;
 }
@@ -44,22 +47,11 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
         mean += frame[static_cast<std::size_t> (i)];
     mean /= frameSize;
 
-    // The frame is copied to stack storage so the input remains untouched.
-    // The shipped configuration is 2048 samples; no allocation occurs here.
-    if (frameSize != 2048)
-    {
-        // Larger experimental configurations are supported by the validation
-        // harness; allocate their scratch only during prepare in future
-        // configurations rather than from this real-time method.
-        confidence *= 0.8f;
-        return 0.0f;
-    }
-
-    float x[2048];
     for (int i = 0; i < frameSize; ++i)
     {
-        x[i] = frame[static_cast<std::size_t> (i)] - static_cast<float> (mean);
-        energy += static_cast<double> (x[i]) * x[i];
+        const float value = frame[static_cast<std::size_t> (i)] - static_cast<float> (mean);
+        centeredFrame[static_cast<std::size_t> (i)] = value;
+        energy += static_cast<double> (value) * value;
     }
     const float rms = static_cast<float> (std::sqrt (energy / frameSize));
     const float levelDb = 20.0f * std::log10 (std::max (rms, 1.0e-6f));
@@ -83,7 +75,8 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
         double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
         for (int i = 0; i < frameSize - lag; i += 2)
         {
-            const double a = x[i], b = x[i + lag];
+            const double a = centeredFrame[static_cast<std::size_t> (i)];
+            const double b = centeredFrame[static_cast<std::size_t> (i + lag)];
             xy += a * b;
             xx += a * a;
             yy += b * b;
