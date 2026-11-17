@@ -19,8 +19,7 @@
 - **Full pitch matrix:** PASS — 154 result rows plus header across 11 configurations, including matched-frame ACF/YIN and separate 40 Hz experiments. The CI artifact contains the full CSV, quick CSV, and ACF-preservation CSV.
 - **Test-tone tool syntax:** PASS — `python -m py_compile tools/make_test_tone.py`.
 - **ThreadSanitizer:** PASS — standalone mailbox/SPSC stress model, [Protocol Tests run](https://github.com/ljrseals-dev/Octivier/actions/runs/44191350059). This does not instrument the integrated JUCE plugin.
-- **Linux and macOS protocol tests:** PASS.
-- **Windows protocol target:** build passed; its test was still running at the time of this status update.
+- **Cross-platform protocol tests:** PASS on Linux, macOS, and Windows — [Protocol Tests run](https://github.com/ljrseals-dev/Octivier/actions/runs/44191350059).
 
 ## Pitch benchmark findings
 
