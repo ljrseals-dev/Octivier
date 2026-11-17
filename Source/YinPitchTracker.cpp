@@ -154,7 +154,18 @@ float YinPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             refined += 0.5 * (left - right) / denominator;
     }
 
+    // Integer-lag quantization can place a boundary estimate up to half a
+    // sample outside the nominal period interval (e.g. 55 Hz at 48 kHz).
+    // Accept that nearest-bin estimate, then clamp only the reported edge Hz.
+    const double minPeriod = sampleRate / static_cast<double> (maxF0);
+    const double maxPeriod = sampleRate / static_cast<double> (minF0);
+    if (refined < minPeriod - 0.5 || refined > maxPeriod + 0.5)
+    {
+        confidence *= 0.8f;
+        return 0.0f;
+    }
+
     const float hz = static_cast<float> (sampleRate / refined);
     confidence = std::clamp (1.0f - cmnd[static_cast<std::size_t> (selected)], 0.0f, 1.0f);
-    return (hz >= minF0 && hz <= maxF0) ? hz : 0.0f;
+    return std::clamp (hz, minF0, maxF0);
 }
