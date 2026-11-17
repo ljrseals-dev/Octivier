@@ -93,7 +93,7 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     }
 
     const int lagCount = std::max (0, maxLag - minLag + 1);
-    if (lagCount <= 0 || lagScores.size() < static_cast<std::size_t> (lagCount))
+    if (lagCount <= 0 || lagScores.size() < static_cast<std::size_t> (lagCount + 2))
     {
         confidence *= 0.8f;
         return 0.0f;
@@ -131,7 +131,6 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     const float threshold = acceptance * globalMax;
     int bestIndex = -1;
     int bestLag = 0;
-    float bestScore = -std::numeric_limits<float>::infinity();
 
     if (selection == PeakSelection::LegacyShortestAboveThreshold)
     {
@@ -144,7 +143,6 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             {
                 bestIndex = k;
                 bestLag = minLag + k;
-                bestScore = score;
                 break;
             }
         }
