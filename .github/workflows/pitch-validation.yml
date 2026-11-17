@@ -9,7 +9,7 @@ on:
 jobs:
   protocol-and-pitch-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -29,6 +29,9 @@ jobs:
       - name: Run bounded pitch benchmark smoke matrix
         run: ./build/PitchValidation --quick > pitch-validation-quick.csv
 
+      - name: Run full pitch validation matrix
+        run: ./build/PitchValidation > pitch-validation-full.csv
+
       - name: Upload benchmark evidence
         uses: actions/upload-artifact@v4
         with:
@@ -36,4 +39,5 @@ jobs:
           path: |
             acf-preservation.csv
             pitch-validation-quick.csv
+            pitch-validation-full.csv
           if-no-files-found: error
