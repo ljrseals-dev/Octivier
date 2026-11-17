@@ -199,6 +199,7 @@ void runConfig (const Config& config, bool quick)
 
                 for (int snrIndex = 0; snrIndex < static_cast<int> (kSnrDb.size()); ++snrIndex)
                 {
+                    if (quick && snrIndex != 1 && snrIndex != 3) continue;
                     const double ratio = std::pow (10.0, kSnrDb[static_cast<std::size_t> (snrIndex)] / 10.0);
                     const float scale = noisePower > 0.0
                         ? static_cast<float> (std::sqrt (signalPower / (noisePower * ratio))) : 0.0f;
@@ -238,6 +239,7 @@ void runConfig (const Config& config, bool quick)
     {
         for (int snr = 0; snr < static_cast<int> (kSnrDb.size()); ++snr)
         {
+            if (quick && snr != 1 && snr != 3) continue;
             const auto& s = stats[wave][snr];
             const double denominator = std::max<std::uint64_t> (1, s.trials);
             std::cout << config.label << ',' << tracker->name() << ','
