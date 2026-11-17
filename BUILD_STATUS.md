@@ -56,6 +56,22 @@ These are implementation claims based on the source diff, **not test results**. 
 | pluginval / DAW validation | NOT RUN | Requires compiled plugin binaries and target hosts. |
 | Release certification | BLOCKED | Do not represent as production-certified until all release gates are completed. |
 
+## Separate audio-block / RMS repair branch
+
+Branch: `repair/octivier-rms-and-audio-block` (based on `main`; independent of the ACF investigation).
+
+Source changes:
+- RMS Compensation is no longer a neutral placeholder. It measures input and pre-output-trim processed power, tracks both with a 300 ms envelope, smooths the required gain change, and clamps the compensation range to +/-12 dB.
+- The compensation state is fixed-size processor state owned by the audio thread; no buffers, locks, or I/O were added to `processBlock`.
+- The enable parameter is read once per block, not once per sample.
+- Pitch update cadence now retains the block-counter remainder instead of discarding it whenever an update becomes due.
+
+Validation status:
+- These source changes have **not yet been compiled against JUCE**.
+- No RMS level-step, pumping, silence, mono/stereo, or host automation test has yet been run.
+- This is RMS matching before output trim, not LUFS/BS.1770 loudness matching.
+- The ACF low-frequency selection change is deliberately not included in this branch.
+
 ## Important lifecycle note
 
 `prepareToPlay` and `releaseResources` stop the coefficient worker before resetting/releasing shared DSP data. This is a non-real-time lifecycle operation. The host lifecycle behavior still needs testing, especially repeated prepare/release, sample-rate changes, and rapid unload/reload.
