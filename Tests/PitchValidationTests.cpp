@@ -132,7 +132,7 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
 struct Stats
 {
     std::uint64_t trials = 0, voiced = 0, correct = 0, octave = 0, other = 0;
-    double confidenceSum = 0.0, microsecondsSum = 0.0;
+    double confidenceSum = 0.0, microsecondsSum = 0.0, firstValidMsSum = 0.0;\n    std::uint64_t firstValidCount = 0;
     std::array<std::uint64_t, 10> confidenceBuckets {};
     std::vector<double> absoluteCents;
 };
@@ -218,6 +218,8 @@ void runConfig (const Config& config, bool quick)
                     if (detected > 0.0f)
                     {
                         ++s.voiced;
+                        ++s.firstValidCount;
+                        s.firstValidMsSum += frameDurationMs;
                         const double cents = std::abs (1200.0 * std::log2 (detected / hz));
                         s.absoluteCents.push_back (cents);
                         if (cents <= 50.0) ++s.correct;
@@ -265,7 +267,7 @@ int main (int argc, char** argv)
                  "other_error_rate,median_abs_cents,p95_abs_cents,mean_confidence,mean_us_per_estimate,"
                  "first_window_complete_ms\n";
 
-    const std::array<Config, 8> configs {{
+    const std::array<Config, 11> configs {{
         { "ACF-2048-shipped", false, 48000.0, 2048, 55.0f, 1200.0f, 0.0f },
         { "ACF-2048-matched", false, 48000.0, 2048, 55.0f, 2200.0f, 0.0f },
         { "YIN-2048-2.0x", true, 48000.0, 0, 55.0f, 2200.0f, 2.0f },
@@ -273,6 +275,8 @@ int main (int argc, char** argv)
         { "YIN-4096-2.5x", true, 48000.0, 0, 55.0f, 2200.0f, 2.5f },
         { "ACF-4096-96k", false, 96000.0, 4096, 55.0f, 2200.0f, 0.0f },
         { "YIN-4096-96k-2.0x", true, 96000.0, 0, 55.0f, 2200.0f, 2.0f },
+        { "ACF-8192-96k-experimental", false, 96000.0, 8192, 55.0f, 2200.0f, 0.0f },
+        { "YIN-4096-48k-low40", true, 48000.0, 0, 40.0f, 2200.0f, 2.5f },
         { "YIN-8192-96k-2.5x-low40", true, 96000.0, 0, 40.0f, 2200.0f, 2.5f }
     }};
     for (const auto& config : configs) runConfig (config, quick);
