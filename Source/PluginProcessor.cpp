@@ -89,6 +89,8 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     delayLeft.assign (maxDelay, 0.0f);
     delayRight.assign (maxDelay, 0.0f);
     smoothedF0 = confidence = 0.0f;
+    inputRmsPower = outputRmsPower = 0.0;
+    rmsCompGain = 1.0f;
     blockCounter = 0;
     smoothStrength = readParam (parameters, "strength");
     smoothFocus = readParam (parameters, "focus");
@@ -325,8 +327,9 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const float sensitivity = readParam (parameters, "tracking");
     float detected = 0.0f;
     blockCounter += numSamples;
-    const bool pitchUpdateDue = blockCounter >= static_cast<int> (currentSampleRate * 0.010);
-    if (pitchUpdateDue) blockCounter = 0;
+    const int pitchUpdatePeriod = juce::jmax (1, static_cast<int> (currentSampleRate * 0.010));
+    const bool pitchUpdateDue = blockCounter >= pitchUpdatePeriod;
+    if (pitchUpdateDue) blockCounter %= pitchUpdatePeriod;
     if (freeze) detected = readParam (parameters, "manualF0");
     else if (pitchUpdateDue)
     {
@@ -388,6 +391,8 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     }
 
     const size_t delayCapacity = delayLeft.size();
+    double blockInputSq = 0.0, blockOutputSq = 0.0;
+    const float rmsGainStart = rmsCompGain;
     const int baseDelay = juce::jlimit (1, static_cast<int> (delayCapacity - 2), static_cast<int> (delayMs * 0.001 * currentSampleRate));
     const auto* gen = activeSlot >= 0 ? &generations[static_cast<size_t> (activeSlot)] : nullptr;
     const std::uint64_t modBase = modSampleCount;
@@ -398,6 +403,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         for (int i = 0; i < numSamples; ++i)
         {
             const float dry = data[i];
+            blockInputSq += static_cast<double> (dry) * dry;
             float wet = dry;
             if (gen != nullptr && smoothedF0 >= kMinF0 && conf >= 0.15f)
                 for (int h = 0; h < kHarmonics; ++h)
@@ -426,14 +432,33 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             const size_t modRead = (write + delayCapacity - static_cast<size_t> (juce::jlimit (1.0f, static_cast<float> (delayCapacity - 2), static_cast<float> (baseDelay) + mod))) % delayCapacity;
             const float modDelayed = ch == 0 ? delayLeft[modRead] : delayRight[modRead];
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
-            data[i] = ((1.0f - smoothMix) * decor + smoothMix * dry) * smoothOutput;
+            const float preGain = (1.0f - smoothMix) * decor + smoothMix * dry;
+            blockOutputSq += static_cast<double> (preGain) * preGain;
+            const float gainRamp = rmsGainStart + (rmsCompGain - rmsGainStart)
+                * (static_cast<float> (i + 1) / static_cast<float> (numSamples));
+            const float compensation = readParam (parameters, "autoGain") > 0.5f ? gainRamp : 1.0f;
+            data[i] = preGain * compensation * smoothOutput;
             if (ch == channels - 1) delayWrite = (delayWrite + 1) % delayCapacity;
             juce::ignoreUnused (read);
         }
     }
-    if (readParam (parameters, "autoGain") > 0.5f)
     {
-        // Intentionally neutral until a true input/output loudness-matching path is implemented.
+        // Track pre-trim input/output power with a 300 ms envelope. The gain
+        // target is bounded to +/-12 dB and smoothed to avoid audible pumping.
+        const double count = static_cast<double> (numSamples) * static_cast<double> (channels);
+        const double inPower = blockInputSq / count;
+        const double outPower = blockOutputSq / count;
+        const double envelope = std::exp (-static_cast<double> (numSamples) / (currentSampleRate * 0.300));
+        inputRmsPower = envelope * inputRmsPower + (1.0 - envelope) * inPower;
+        outputRmsPower = envelope * outputRmsPower + (1.0 - envelope) * outPower;
+        const bool autoGainEnabled = readParam (parameters, "autoGain") > 0.5f;
+        float targetGain = 1.0f;
+        if (autoGainEnabled && inputRmsPower > 1.0e-10 && outputRmsPower > 1.0e-10)
+            targetGain = juce::jlimit (0.25118864f, 3.98107171f,
+                static_cast<float> (std::sqrt (inputRmsPower / outputRmsPower)));
+        const float gainSmoothing = static_cast<float> (1.0 - std::exp (
+            -static_cast<double> (numSamples) / (currentSampleRate * 0.300)));
+        rmsCompGain += gainSmoothing * (targetGain - rmsCompGain);
     }
     modSampleCount += static_cast<std::uint64_t> (numSamples);
     // Measure odd/even harmonic energy from the rendered output. This is a
