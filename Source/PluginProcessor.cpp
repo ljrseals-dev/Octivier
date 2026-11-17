@@ -407,7 +407,6 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
                 wet = processBiquad (gen->shelves[0], states.shelves[0], wet);
                 wet = processBiquad (gen->shelves[1], states.shelves[1], wet);
             }
-            const float magnitude = std::abs (wet);
             if (character == 1 && charAmount > 0.0f)
             {
                 const float driven = std::tanh (wet * (1.0f + 4.0f * charAmount));
