@@ -31,6 +31,19 @@ if (OCTIVIER_PROTOCOL_TESTS_ONLY)
     endif()
     add_test(NAME PitchTrackerPreparationTests COMMAND PitchTrackerPreparationTests)
 
+    add_executable(PitchValidation
+        Tests/PitchValidationTests.cpp
+        Source/AcfPitchTracker.cpp
+        Source/YinPitchTracker.cpp
+    )
+    target_include_directories(PitchValidation PRIVATE Source)
+    target_compile_features(PitchValidation PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(PitchValidation PRIVATE /W4 /WX)
+    else()
+        target_compile_options(PitchValidation PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+
     if (OCTIVIER_ENABLE_TSAN)
         if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
             message(FATAL_ERROR "ThreadSanitizer requires Clang or GCC")
