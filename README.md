@@ -9,8 +9,6 @@
 - Pitch estimate with gate, confidence hold, sensitivity, and manual/freeze fundamental.
 - Classic, Sub, Hollow, and Square harmonic modes; 16 partial filter slots.
 - Strength/focus smoothing; bounded filter frequency/Q; parallel dry blend.
-- Fixed three-slot coefficient-generation ring and state-published request mailbox; coefficients are plain values and are adopted at block boundaries.
-- Formant and Air controls use RBJ-style high-shelf biquads built off the audio thread.
 - Stereo delay-based decorrelation controls, simple Tube/Tape waveshaping, output trim.
 - Graphite/cyan/amber UI, parameter attachments, factory preset selector, live pitch/odd/even readouts.
 - Deterministic synthetic test-tone generator and JUCE smoke-test target.
@@ -19,12 +17,12 @@
 
 1. **No guaranteed octave translation.** Harmonic EQ changes spectral balance; it does not create missing harmonics or guarantee that listeners hear a stable octave above.
 2. **Tracker is deliberately simple.** Autocorrelation can produce octave errors and fail on breathy, polyphonic, noisy, or transient material. Intended source is monophonic.
-3. **Formant and Air are broad high-shelf tone controls, not a vocal-tract/formant-preservation model.** Their frequency responses have not yet been verified against golden curves.
+3. **“Formant” and “Air” are not full shelf filters yet.** They currently act as broad gain trims. Do not market them as formant preservation.
 4. **RMS compensation is exposed but neutral.** It is not yet a real dry/wet loudness-matching implementation.
 5. **Decorrelator is a lightweight delay implementation.** It is not a phase-safe stereoizer and may comb-filter when blended with dry signal.
 6. **Harmonic meter is a diagnostic approximation**, not calibrated odd/even spectral integration.
-7. **Release validation remains incomplete.** The JUCE-independent slot/mailbox protocol stress test passes, but the integrated JUCE plugin has not been compiled, and ThreadSanitizer, CPU profiling, pluginval, DAW tests, and perceptual ABX have not been run. Do not claim zero latency: the decorrelation path is intentionally delayed and reported tail is 250 ms.
-8. The plugin's source can be built only after a compatible JUCE source tree is supplied. This package does not bundle JUCE. See `BUILD_STATUS.md` for exact test evidence and the remaining release gates.
+7. **Realtime allocation audit, CPU profiling, sanitizer runs, pluginval, DAW tests, and perceptual ABX are not performed here.** Do not claim zero latency: the decorrelation path is intentionally delayed and reported tail is 250 ms.
+8. The plugin's source can be built only after a compatible JUCE source tree is supplied. This package does not bundle JUCE.
 
 ## Build prerequisites
 
@@ -81,16 +79,6 @@ ctest --test-dir build -C Release --output-on-failure
 
 The smoke test checks finite output and state serialization. It does **not** certify frequency response, real-time safety, host compatibility, or perceptual quality.
 
-A JUCE-independent protocol stress test can be built without JUCE:
-
-```bash
-cmake -S . -B build-protocol -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build-protocol --parallel 2
-ctest --test-dir build-protocol --output-on-failure
-```
-
-This test validates the mailbox/slot-state protocol model only; it does not compile or execute the plugin processor.
-
 ## Presets and state
 
 The editor has a factory preset selector. Preset selection writes parameter values through JUCE host notifications. The host's normal plugin-state mechanism is the authoritative recall path. `Save State` writes a processor XML state snapshot to `Documents/Octivier-State.xml` for diagnostics; it is not a multi-preset browser.
@@ -107,7 +95,7 @@ The editor has a factory preset selector. Preset selection writes parameter valu
 | Mode | Classic, Sub, Hollow, Square | Timbre modes, not octave shifters |
 | Delay / Width / Mod Depth | Stereo decorrelation | May produce comb filtering |
 | Character | Clean, Tube, Tape | Simple waveshaping; no oversampling yet |
-| Formant / Air | RBJ-style high shelves | Shelf curves still need golden-response verification; not a vocal-tract model |
+| Formant / Air | Broad gain trims in this version | Labels are provisional; not true shelf/formant processing |
 | Dry Blend / Output | Parallel mix and output trim | Mix 0 = full processed signal |
 
 ## License and attribution
