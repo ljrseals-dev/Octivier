@@ -174,7 +174,7 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     }
 
     double refinedLag = static_cast<double> (bestLag);
-    if (selection == PeakSelection::StrongestLocalPeak
+    if (selection == PeakSelection::FirstLocalPeakAboveThreshold
         && bestIndex > 0 && bestIndex + 1 < lagCount)
     {
         const double left = lagScores[static_cast<std::size_t> (bestIndex)];

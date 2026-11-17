@@ -11,8 +11,8 @@ public:
     {
         // Kept only as an extraction-regression reference for the pre-fix ACF.
         LegacyShortestAboveThreshold,
-        // Select the strongest local correlation peak; ties prefer shorter lag.
-        StrongestLocalPeak
+        // Select the first local correlation peak that clears the global threshold.
+        FirstLocalPeakAboveThreshold
     };
 
     bool prepare (double sampleRate, int frameSize,
