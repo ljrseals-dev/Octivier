@@ -6,6 +6,9 @@ on:
   push:
     branches: ["repair/**"]
 
+permissions:
+  contents: write
+
 jobs:
   protocol-and-pitch-smoke:
     runs-on: ubuntu-latest
@@ -31,6 +34,22 @@ jobs:
 
       - name: Run full pitch validation matrix
         run: ./build/PitchValidation > pitch-validation-full.csv
+
+      - name: Commit measured CSV results to this branch
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p Tests/results
+          cp acf-preservation.csv Tests/results/acf-preservation.csv
+          cp pitch-validation-full.csv Tests/results/pitch-validation-full.csv
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tests/results/acf-preservation.csv Tests/results/pitch-validation-full.csv
+          if git diff --cached --quiet; then
+            echo "No benchmark CSV changes to commit."
+            exit 0
+          fi
+          git commit -m "Commit full pitch validation CSV"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload benchmark evidence
         uses: actions/upload-artifact@v4
