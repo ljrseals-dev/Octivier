@@ -15,6 +15,8 @@ public:
                     float& confidence) noexcept;
 
     int getFrameSize() const noexcept { return frameSize; }
+    int getTauMin() const noexcept { return minLag; }
+    int getTauMax() const noexcept { return maxLag; }
     bool isPrepared() const noexcept { return prepared; }
 
 private:
