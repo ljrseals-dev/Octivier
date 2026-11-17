@@ -46,7 +46,7 @@ bool AcfPitchTracker::prepare (double sr, int requestedFrameSize,
     frameSize = requestedFrameSize;
     minLag = candidateMinLag;
     maxLag = candidateMaxLag;
-    lagScores.assign (static_cast<std::size_t> (maxLag - minLag + 1), 0.0f);
+    lagScores.assign (static_cast<std::size_t> (maxLag - minLag + 3), 0.0f);
     centeredFrame.assign (static_cast<std::size_t> (requestedFrameSize), 0.0f);
     prepared = true;
     return true;
@@ -99,10 +99,12 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
         return 0.0f;
     }
 
-    float globalMax = 0.0f;
-    for (int k = 0; k < lagCount; ++k)
+    // Compute one neighbor on either side of the permitted lag range so
+    // boundary samples cannot masquerade as local maxima merely because the
+    // search window began or ended there.
+    for (int offset = 0; offset < lagCount + 2; ++offset)
     {
-        const int lag = minLag + k;
+        const int lag = minLag - 1 + offset;
         double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
         for (int i = 0; i < frameSize - lag; i += 2)
         {
@@ -112,10 +114,13 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             xx += a * a;
             yy += b * b;
         }
-        const float score = static_cast<float> (xy / std::sqrt (xx * yy));
-        lagScores[static_cast<std::size_t> (k)] = score;
-        globalMax = std::max (globalMax, score);
+        lagScores[static_cast<std::size_t> (offset)] =
+            static_cast<float> (xy / std::sqrt (xx * yy));
     }
+
+    float globalMax = 0.0f;
+    for (int k = 0; k < lagCount; ++k)
+        globalMax = std::max (globalMax, lagScores[static_cast<std::size_t> (k + 1)]);
     if (! std::isfinite (globalMax) || globalMax < 0.20f)
     {
         confidence *= 0.8f;
@@ -131,47 +136,11 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     if (selection == PeakSelection::LegacyShortestAboveThreshold)
     {
         // Exact pre-fix selection path retained for the extraction equivalence
-        // test; the plugin and benchmark use strongest-local-peak selection.
-        for (int k = 0; k < lagCount; ++k)
-            if (lagScores[static_cast<std::size_t> (k)] >= threshold)
-            {
-                bestIndex = k;
-                bestLag = minLag + k;
-                bestScore = lagScores[static_cast<std::size_t> (k)];
-                break;
-            }
-    }
-    else
-    {
-        // First find the strongest qualifying local peak. A periodic sine has
-        // almost identical normalized peaks at integer multiples of its period;
-        // choosing the numerically largest one can jump to a subharmonic because
-        // of tiny finite-window rounding differences.
+        // test; it deliberately uses the original candidate-only threshold scan.
         for (int k = 0; k < lagCount; ++k)
         {
-            const float score = lagScores[static_cast<std::size_t> (k)];
-            const float left = k > 0 ? lagScores[static_cast<std::size_t> (k - 1)]
-                                     : -std::numeric_limits<float>::infinity();
-            const float right = k + 1 < lagCount
-                ? lagScores[static_cast<std::size_t> (k + 1)]
-                : -std::numeric_limits<float>::infinity();
-            if (score >= left && score >= right && score >= threshold)
-                bestScore = std::max (bestScore, score);
-        }
-
-        // Select the shortest peak within 0.02 normalized-correlation points
-        // of the strongest peak. This resolves near-equal period multiples
-        // without accepting the old first-sample-above-threshold false peak.
-        const float nearBestThreshold = std::max (threshold, bestScore - 0.02f);
-        for (int k = 0; k < lagCount; ++k)
-        {
-            const float score = lagScores[static_cast<std::size_t> (k)];
-            const float left = k > 0 ? lagScores[static_cast<std::size_t> (k - 1)]
-                                     : -std::numeric_limits<float>::infinity();
-            const float right = k + 1 < lagCount
-                ? lagScores[static_cast<std::size_t> (k + 1)]
-                : -std::numeric_limits<float>::infinity();
-            if (score >= left && score >= right && score >= nearBestThreshold)
+            const float score = lagScores[static_cast<std::size_t> (k + 1)];
+            if (score >= threshold)
             {
                 bestIndex = k;
                 bestLag = minLag + k;
@@ -180,7 +149,27 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             }
         }
     }
-
+    else
+    {
+        // The first *local peak* above threshold is the fundamental candidate.
+        // Unlike the old first-sample-above-threshold rule, this does not select
+        // the high short-lag shoulder before the actual periodicity peak.
+        // The extra neighbor samples make this test valid at both range edges.
+        for (int k = 0; k < lagCount; ++k)
+        {
+            const std::size_t centreIndex = static_cast<std::size_t> (k + 1);
+            const float score = lagScores[centreIndex];
+            const float left = lagScores[centreIndex - 1];
+            const float right = lagScores[centreIndex + 1];
+            if (score >= left && score >= right && score >= threshold)
+            {
+                bestIndex = k;
+                bestLag = minLag + k;
+                bestScore = score;
+                break;
+            }
+        }
+    }
     if (bestIndex < 0)
     {
         confidence *= 0.8f;
@@ -191,17 +180,16 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     if (selection == PeakSelection::StrongestLocalPeak
         && bestIndex > 0 && bestIndex + 1 < lagCount)
     {
-        const double left = lagScores[static_cast<std::size_t> (bestIndex - 1)];
-        const double centre = lagScores[static_cast<std::size_t> (bestIndex)];
-        const double right = lagScores[static_cast<std::size_t> (bestIndex + 1)];
+        const double left = lagScores[static_cast<std::size_t> (bestIndex)];
+        const double centre = lagScores[static_cast<std::size_t> (bestIndex + 1)];
+        const double right = lagScores[static_cast<std::size_t> (bestIndex + 2)];
         const double denominator = left - 2.0 * centre + right;
         if (std::abs (denominator) > 1.0e-12)
             refinedLag += std::clamp (0.5 * (left - right) / denominator, -0.5, 0.5);
     }
 
     const float f0 = static_cast<float> (sampleRate / refinedLag);
-    confidence = std::clamp (((selection == PeakSelection::LegacyShortestAboveThreshold
-                                  ? globalMax : bestScore) - 0.15f) / 0.75f,
+    confidence = std::clamp ((globalMax - 0.15f) / 0.75f,
                              0.0f, 1.0f);
     return (std::isfinite (f0) && f0 >= minF0 && f0 <= maxF0) ? f0 : 0.0f;
 }
