@@ -67,6 +67,33 @@ int main()
         ok = false;
     }
 
+    YinPitchTracker nyquistInvalid;
+    if (nyquistInvalid.prepare (48000.0, 40.0f, 24000.0f))
+    {
+        std::cerr << "FAIL: YIN accepted a max F0 at Nyquist\n";
+        ok = false;
+    }
+
+    YinPitchTracker overflowTracker;
+    if (! overflowTracker.prepare (48000.0, 55.0f, 1200.0f))
+    {
+        std::cerr << "FAIL: YIN overflow fixture prepare\n";
+        ok = false;
+    }
+    else
+    {
+        std::vector<float> extremeFrame (static_cast<std::size_t> (overflowTracker.getFrameSize()),
+                                         std::numeric_limits<float>::max());
+        float extremeConfidence = 0.8f;
+        if (overflowTracker.estimate (extremeFrame.data(), overflowTracker.getFrameSize(),
+                                      -90.0f, extremeConfidence) != 0.0f
+            || extremeConfidence != 0.0f)
+        {
+            std::cerr << "FAIL: YIN did not reject an unrepresentable difference function\n";
+            ok = false;
+        }
+    }
+
     AcfPitchTracker acf;
     if (! acf.prepare (48000.0, 2048, 55.0f, 1200.0f)
         || acf.prepare (96000.0, 2048, 55.0f, 1200.0f)

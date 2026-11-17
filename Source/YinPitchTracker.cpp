@@ -114,6 +114,12 @@ float YinPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             const double delta = a - b;
             sum += delta * delta;
         }
+        if (! std::isfinite (sum)
+            || sum > static_cast<double> (std::numeric_limits<float>::max()))
+        {
+            confidence = 0.0f;
+            return 0.0f;
+        }
         difference[static_cast<std::size_t> (tau)] = static_cast<float> (sum);
     }
 
