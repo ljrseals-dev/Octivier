@@ -75,9 +75,9 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     pitchHistory.assign (historySize, 0.0f);
     historyWrite = delayWrite = 0;
     modSampleCount = 0;
-    const int minPitchLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxPitchLag = juce::jmin (2048 / 2, static_cast<int> (currentSampleRate / kMinF0));
-    lagScores.assign (static_cast<size_t> (juce::jmax (0, maxPitchLag - minPitchLag + 1)), 0.0f);
+    const bool acfPrepared = acfTracker.prepare (currentSampleRate, 2048, kMinF0, kMaxF0);
+    jassert (acfPrepared);
+    juce::ignoreUnused (acfPrepared);
     meterFft = std::make_unique<juce::dsp::FFT> (kMeterFftOrder);
     for (int i = 0; i < kMeterFftSize; ++i)
         meterWindow[static_cast<size_t> (i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float> (i) / static_cast<float> (kMeterFftSize - 1));
@@ -131,56 +131,19 @@ void OctivierAudioProcessor::pushPitchHistory (const float* data, int samples)
 
 float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
 {
-    const size_t n = pitchHistory.size();
-    if (n < 2048) return 0.0f;
     constexpr int frameN = 2048;
-    std::array<float, frameN> x {};
-    double energy = 0.0, mean = 0.0;
+    const size_t histSize = pitchHistory.size();
+    if (histSize < static_cast<size_t> (frameN)) return 0.0f;
+
+    // historyWrite is the next-write index. Start at the oldest sample in the
+    // newest complete frame and copy it into chronological linear storage.
+    std::array<float, frameN> frame {};
+    const size_t start = (historyWrite + histSize - static_cast<size_t> (frameN)) % histSize;
     for (int i = 0; i < frameN; ++i)
-    {
-        const auto idx = (historyWrite + n - frameN + static_cast<size_t> (i)) % n;
-        x[static_cast<size_t> (i)] = pitchHistory[idx];
-        mean += x[static_cast<size_t> (i)];
-    }
-    mean /= frameN;
-    for (auto& v : x) { v -= static_cast<float> (mean); energy += v * v; }
-    const float rms = static_cast<float> (std::sqrt (energy / frameN));
-    if (gainToDb (rms) < gateDb) { confidence *= 0.75f; return 0.0f; }
-    const int minLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxLag = juce::jmin (frameN / 2, static_cast<int> (currentSampleRate / kMinF0));
-    const int lagCount = juce::jmax (0, maxLag - minLag + 1);
-    if (lagCount <= 0 || lagScores.size() < static_cast<size_t> (lagCount))
-    { confidence *= 0.8f; return 0.0f; }
+        frame[static_cast<size_t> (i)] =
+            pitchHistory[(start + static_cast<size_t> (i)) % histSize];
 
-    float globalMax = 0.0f;
-    for (int k = 0; k < lagCount; ++k)
-    {
-        const int lag = minLag + k;
-        double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
-        for (int i = 0; i < frameN - lag; i += 2)
-        {
-            const double a = x[static_cast<size_t> (i)], b = x[static_cast<size_t> (i + lag)];
-            xy += a * b; xx += a * a; yy += b * b;
-        }
-        const float score = static_cast<float> (xy / std::sqrt (xx * yy));
-        lagScores[static_cast<size_t> (k)] = score;
-        globalMax = std::max (globalMax, score);
-    }
-    if (globalMax < 0.20f) { confidence *= 0.8f; return 0.0f; }
-
-    // Select the shortest period whose normalized correlation is close to
-    // the strongest candidate; unlike break-on-threshold this evaluates the
-    // full search range and avoids accepting the first weak subharmonic peak.
-    const float acceptance = juce::jlimit (0.75f, 0.95f, 0.90f - 0.10f * sensitivity);
-    const float threshold = acceptance * globalMax;
-    int bestLag = 0;
-    for (int k = 0; k < lagCount; ++k)
-        if (lagScores[static_cast<size_t> (k)] >= threshold)
-        { bestLag = minLag + k; break; }
-    if (bestLag == 0) { confidence *= 0.8f; return 0.0f; }
-    const float f0 = static_cast<float> (currentSampleRate / bestLag);
-    confidence = juce::jlimit (0.0f, 1.0f, (globalMax - 0.15f) / 0.75f);
-    return (f0 >= kMinF0 && f0 <= kMaxF0) ? f0 : 0.0f;
+    return acfTracker.estimate (frame.data(), frameN, gateDb, sensitivity, confidence);
 }
 
 OctivierAudioProcessor::Biquad OctivierAudioProcessor::makePeak (double sr, float freq, float q, float gainDb) noexcept
