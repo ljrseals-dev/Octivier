@@ -14,7 +14,7 @@ constexpr int kFrameSize = 2048;
 constexpr float kMinF0 = 55.0f;
 constexpr float kMaxF0 = 1200.0f;
 
-bool checkSine (double frequency, double phase)
+bool checkSine (double frequency, double phase, int& legacyMisselections)
 {
     std::array<float, kFrameSize> frame {};
     double mean = 0.0;
@@ -89,6 +89,13 @@ bool checkSine (double frequency, double phase)
             break;
         }
 
+    if (legacy >= 0)
+    {
+        const double legacyHz = kSampleRate / static_cast<double> (minLag + legacy);
+        if (std::abs (1200.0 * std::log2 (legacyHz / frequency)) > 35.0)
+            ++legacyMisselections;
+    }
+
     if (cents > 35.0)
     {
         std::cerr << "Wrong ACF sine selection: target=" << frequency
@@ -110,14 +117,19 @@ int main()
     constexpr std::array<double, 5> phases { 0.0, 0.37, 0.91, 1.73, 2.61 };
 
     bool ok = true;
+    int legacyMisselections = 0;
     for (const auto frequency : frequencies)
         for (const auto phase : phases)
-            ok = checkSine (frequency, phase) && ok;
+            ok = checkSine (frequency, phase, legacyMisselections) && ok;
 
-    if (! ok)
+    if (! ok || legacyMisselections == 0)
+    {
+        std::cerr << "Expected the legacy short-lag rule to misselect at least one "
+                     "low-frequency sine; observed " << legacyMisselections << " failures.\\n";
         return 1;
+    }
 
-    std::cout << "PASS: low-frequency sine selection at 48 kHz / 2048 samples "
-                 "across 12 fundamentals and 5 phases.\\n";
+    std::cout << "PASS: corrected ACF selection across 60 low-frequency sine fixtures; "
+              << legacyMisselections << " legacy short-lag misselections reproduced.\\n";
     return 0;
 }
