@@ -21,7 +21,7 @@ public:
     float estimate (const float* frame, int frameSize,
                     float gateDb, float sensitivity,
                     float& confidence,
-                    PeakSelection selection = PeakSelection::StrongestLocalPeak) noexcept;
+                    PeakSelection selection = PeakSelection::FirstLocalPeakAboveThreshold) noexcept;
 
     int getFrameSize() const noexcept { return frameSize; }
     int getTauMin() const noexcept { return minLag; }
