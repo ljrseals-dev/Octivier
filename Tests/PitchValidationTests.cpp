@@ -132,7 +132,8 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
 struct Stats
 {
     std::uint64_t trials = 0, voiced = 0, correct = 0, octave = 0, other = 0;
-    double confidenceSum = 0.0, microsecondsSum = 0.0, firstValidMsSum = 0.0;\n    std::uint64_t firstValidCount = 0;
+    double confidenceSum = 0.0, microsecondsSum = 0.0, firstValidMsSum = 0.0;
+    std::uint64_t firstValidCount = 0;
     std::array<std::uint64_t, 10> confidenceBuckets {};
     std::vector<double> absoluteCents;
 };
@@ -253,7 +254,14 @@ void runConfig (const Config& config, bool quick)
                       << percentile (s.absoluteCents, 0.95) << ','
                       << s.confidenceSum / denominator << ','
                       << s.microsecondsSum / denominator << ','
-                      << frameDurationMs << '\n';
+                      << (s.firstValidCount > 0 ? s.firstValidMsSum / s.firstValidCount : -1.0)
+                      << ",\"";
+            for (std::size_t bucket = 0; bucket < s.confidenceBuckets.size(); ++bucket)
+            {
+                if (bucket != 0) std::cout << ';';
+                std::cout << s.confidenceBuckets[bucket];
+            }
+            std::cout << "\"\n";
         }
     }
 }
@@ -265,7 +273,7 @@ int main (int argc, char** argv)
     std::cout << "config,tracker,sample_rate,frame_size,min_f0,max_f0,period_multiplier,tau_min,tau_max,"
                  "frame_duration_ms,signal,snr_db,trials,voiced_rate,correct_rate,octave_error_rate,"
                  "other_error_rate,median_abs_cents,p95_abs_cents,mean_confidence,mean_us_per_estimate,"
-                 "first_window_complete_ms\n";
+                 "first_valid_estimate_ms,confidence_bucket_counts\n";
 
     const std::array<Config, 11> configs {{
         { "ACF-2048-shipped", false, 48000.0, 2048, 55.0f, 1200.0f, 0.0f },
