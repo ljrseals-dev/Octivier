@@ -143,6 +143,10 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     }
     else
     {
+        // First find the strongest qualifying local peak. A periodic sine has
+        // almost identical normalized peaks at integer multiples of its period;
+        // choosing the numerically largest one can jump to a subharmonic because
+        // of tiny finite-window rounding differences.
         for (int k = 0; k < lagCount; ++k)
         {
             const float score = lagScores[static_cast<std::size_t> (k)];
@@ -151,16 +155,28 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             const float right = k + 1 < lagCount
                 ? lagScores[static_cast<std::size_t> (k + 1)]
                 : -std::numeric_limits<float>::infinity();
-            const bool localMaximum = score >= left && score >= right;
-            if (! localMaximum || score < threshold)
-                continue;
+            if (score >= left && score >= right && score >= threshold)
+                bestScore = std::max (bestScore, score);
+        }
 
-            // A shorter lag is only a tie-breaker, not the selection rule.
-            if (score > bestScore + 1.0e-6f)
+        // Select the shortest peak within 0.02 normalized-correlation points
+        // of the strongest peak. This resolves near-equal period multiples
+        // without accepting the old first-sample-above-threshold false peak.
+        const float nearBestThreshold = std::max (threshold, bestScore - 0.02f);
+        for (int k = 0; k < lagCount; ++k)
+        {
+            const float score = lagScores[static_cast<std::size_t> (k)];
+            const float left = k > 0 ? lagScores[static_cast<std::size_t> (k - 1)]
+                                     : -std::numeric_limits<float>::infinity();
+            const float right = k + 1 < lagCount
+                ? lagScores[static_cast<std::size_t> (k + 1)]
+                : -std::numeric_limits<float>::infinity();
+            if (score >= left && score >= right && score >= nearBestThreshold)
             {
                 bestIndex = k;
                 bestLag = minLag + k;
                 bestScore = score;
+                break;
             }
         }
     }
