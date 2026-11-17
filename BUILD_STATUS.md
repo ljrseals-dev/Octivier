@@ -2,45 +2,49 @@
 
 **Updated:** 2026-10-12  
 **Release gate:** BLOCKED  
-**Plugin build:** NOT RUN — compatible JUCE source checkout is not present in this package/environment.  
-**Standalone protocol test:** PASS — compiled with GCC 14.2 / CMake 3.31.6 and passed CTest.
+**JUCE plugin build:** NOT RUN — a JUCE source checkout was not available in this environment.  
+**Standalone protocol test:** PASS — GCC 14.2.0 / CMake 3.31.6; 1/1 CTest passed.
 
-## Evidence
+## Source reconciliation
 
-Command run:
+The supplied `Octivier .txt` contains newer source blocks than the GitHub ZIP for the processor/editor and several documentation files. Those supplied blocks have been applied over the GitHub ZIP base. The reconciled source includes YIN/CMND pitch tracking, a 2× IIR polyphase half-band oversampling stage for Tube/Tape saturation, and smoothed RMS compensation. These implementations are still unverified in an integrated JUCE build.
 
-```text
+## Verified command and result
+
+```sh
 cmake -S . -B build-protocol -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-protocol --parallel 2
-ctest --test-dir build-protocol --output-on-failure
+ctest --test-dir build-protocol -C Release --output-on-failure
 ```
 
-Observed output:
+Observed in this environment:
 
 ```text
+-- The CXX compiler identification is GNU 14.2.0
+-- Configuring done
+-- Generating done
 [ 50%] Building CXX object CMakeFiles/OctivierSlotOwnershipTests.dir/Tests/SlotOwnershipTests.cpp.o
 [100%] Linking CXX executable OctivierSlotOwnershipTests
 [100%] Built target OctivierSlotOwnershipTests
-1/1 Test #1: OctivierSlotOwnershipTests .......   Passed    0.29 sec
+1/1 Test #1: OctivierSlotOwnershipTests .......   Passed    0.07 sec
 100% tests passed, 0 tests failed out of 1
 ```
 
-The standalone test stress-tests a separately compiled model of the mailbox and three-slot ownership protocol over 250,000 accepted requests. It is evidence for the protocol pattern, **not** proof that the JUCE plugin compiles or that the integrated plugin is race-free under ThreadSanitizer. The plugin source integration has not yet been compiled against JUCE.
+The test exercises a JUCE-independent model of the mailbox and three-slot ownership protocol over 250,000 accepted handoffs. It does **not** compile or execute `PluginProcessor.cpp` and is not evidence that the integrated plug-in is race-free.
 
-## Current claim status
+## Not yet verified
 
-| Claim | Status | Basis / next requirement |
-|---|---|---|
-| Request payload publication is ordered | IMPLEMENTED BY DESIGN; plugin UNVERIFIED | Mailbox states are Empty/Writing/Ready/Reading; producer claims Empty before payload write and publishes Ready with release; worker claims Ready with acquire. Compile and run TSAN stress against integrated code. |
-| Coefficient slots have exclusive ownership states | IMPLEMENTED BY DESIGN; plugin UNVERIFIED | Three fixed slots; worker claims Idle via CAS, publishes Ready, audio claims Ready and retires old Reading slot only after a replacement is acquired. Integrated plugin build and TSAN remain required. |
-| Coefficients are plain values, not reference-counted pointers | IMPLEMENTED BY INSPECTION | Audio path uses fixed arrays of five-float biquad coefficients and per-channel state. Real-time host audit still required. |
-| Formant/Air use shelf biquads | IMPLEMENTED BY INSPECTION; RESPONSE UNVERIFIED | RBJ-style high shelves are generated off-thread and published with the harmonic bank. Golden frequency-response tests are not yet included. |
-| JUCE plugin build | BLOCKED / NOT RUN | Supply a compatible JUCE 7/8 checkout and configure with `-DJUCE_DIR=...`. |
-| JUCE smoke tests | NOT RUN | Require JUCE build; target includes processor and editor source. |
-| ThreadSanitizer / ASan | NOT RUN | Run against the integrated plugin and exchange stress harness on a supported toolchain. |
-| pluginval / DAW validation | NOT RUN | Requires compiled plugin binaries and target hosts. |
-| Release certification | BLOCKED | Do not represent as production-certified until all release gates are completed. |
+- Full JUCE configure and compilation of VST3/Standalone targets.
+- JUCE-backed `OctivierSmokeTests` and state round-trip.
+- AU target on macOS.
+- ThreadSanitizer / ASan / UBSan on integrated code.
+- Pitch accuracy against golden tones and noisy/polyphonic inputs.
+- Harmonic/shelf frequency responses against reference curves.
+- Oversampler latency and aliasing performance.
+- RMS compensation behavior around transients and sustained signals.
+- CPU usage, pluginval, load/unload, automation, preset recall and DAW host runs.
+- Loudness-matched listening and ABX evaluation.
 
-## Important lifecycle note
+## Release gate
 
-`prepareToPlay` and `releaseResources` stop the coefficient worker before resetting/releasing shared DSP data. This is a non-real-time lifecycle operation. The host lifecycle behavior still needs testing, especially repeated prepare/release, sample-rate changes, and rapid unload/reload.
+**BLOCKED.** Do not describe the plug-in as built, production-ready, release-certified, or validated in a DAW until the full build, smoke tests, sanitizer runs, DSP measurements, host validation and listening tests have actually been completed and the raw logs recorded.
