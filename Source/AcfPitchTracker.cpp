@@ -163,7 +163,6 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
             {
                 bestIndex = k;
                 bestLag = minLag + k;
-                bestScore = score;
                 break;
             }
         }
