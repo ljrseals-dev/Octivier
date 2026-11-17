@@ -149,17 +149,31 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     }
     else
     {
-        // The first *local peak* above threshold is the fundamental candidate.
-        // Unlike the old first-sample-above-threshold rule, this does not select
-        // the high short-lag shoulder before the actual periodicity peak.
-        // The extra neighbor samples make this test valid at both range edges.
+        // First find the strongest genuine local peak inside the permitted
+        // lag range. The extra neighbor samples prevent either search boundary
+        // from being mistaken for a peak.
+        float strongestPeak = -std::numeric_limits<float>::infinity();
         for (int k = 0; k < lagCount; ++k)
         {
             const std::size_t centreIndex = static_cast<std::size_t> (k + 1);
             const float score = lagScores[centreIndex];
-            const float left = lagScores[centreIndex - 1];
-            const float right = lagScores[centreIndex + 1];
-            if (score >= left && score >= right && score >= threshold)
+            if (score >= lagScores[centreIndex - 1]
+                && score >= lagScores[centreIndex + 1]
+                && score >= threshold)
+                strongestPeak = std::max (strongestPeak, score);
+        }
+
+        // Period multiples of a clean tone can have nearly equal normalized
+        // scores. Prefer the shortest peak within 0.02 of the strongest one,
+        // while rejecting weaker harmonic-related local maxima.
+        const float nearBest = std::max (threshold, strongestPeak - 0.02f);
+        for (int k = 0; k < lagCount; ++k)
+        {
+            const std::size_t centreIndex = static_cast<std::size_t> (k + 1);
+            const float score = lagScores[centreIndex];
+            if (score >= lagScores[centreIndex - 1]
+                && score >= lagScores[centreIndex + 1]
+                && score >= nearBest)
             {
                 bestIndex = k;
                 bestLag = minLag + k;
