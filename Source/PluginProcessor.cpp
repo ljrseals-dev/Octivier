@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -78,6 +79,10 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     const bool acfPrepared = acfTracker.prepare (currentSampleRate, 2048, kMinF0, kMaxF0);
     jassert (acfPrepared);
     juce::ignoreUnused (acfPrepared);
+
+    const bool yinPrepared = yinTracker.prepare (currentSampleRate, kMinF0, kMaxF0, 2.5f);
+    jassert (yinPrepared);
+    yinFrameScratch.assign (yinPrepared ? static_cast<size_t> (yinTracker.getFrameSize()) : 0U, 0.0f);
     meterFft = std::make_unique<juce::dsp::FFT> (kMeterFftOrder);
     for (int i = 0; i < kMeterFftSize; ++i)
         meterWindow[static_cast<size_t> (i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float> (i) / static_cast<float> (kMeterFftSize - 1));
@@ -144,6 +149,30 @@ float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
             pitchHistory[(start + static_cast<size_t> (i)) % histSize];
 
     return acfTracker.estimate (frame.data(), frameN, gateDb, sensitivity, confidence);
+}
+
+float OctivierAudioProcessor::estimatePitchYinForValidation (float gateDb, float& outConfidence) noexcept
+{
+    outConfidence = 0.0f;
+    if (! yinTracker.isPrepared()) return 0.0f;
+
+    const size_t histSize = pitchHistory.size();
+    const int frameSize = yinTracker.getFrameSize();
+    if (histSize < static_cast<size_t> (frameSize)
+        || yinFrameScratch.size() != static_cast<size_t> (frameSize))
+        return 0.0f;
+
+    // historyWrite is the next-write index. Copy the newest complete frame in
+    // chronological order, including wraparound, without allocating.
+    const size_t start = (historyWrite + histSize - static_cast<size_t> (frameSize)) % histSize;
+    const size_t firstPart = std::min (static_cast<size_t> (frameSize), histSize - start);
+    std::memcpy (yinFrameScratch.data(), pitchHistory.data() + start,
+                 sizeof (float) * firstPart);
+    if (firstPart < static_cast<size_t> (frameSize))
+        std::memcpy (yinFrameScratch.data() + firstPart, pitchHistory.data(),
+                     sizeof (float) * (static_cast<size_t> (frameSize) - firstPart));
+
+    return yinTracker.estimate (yinFrameScratch.data(), frameSize, gateDb, outConfidence);
 }
 
 OctivierAudioProcessor::Biquad OctivierAudioProcessor::makePeak (double sr, float freq, float q, float gainDb) noexcept
