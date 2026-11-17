@@ -51,7 +51,7 @@ float AcfPitchTracker::estimate (const float* frame, int suppliedFrameSize,
     {
         const float value = frame[static_cast<std::size_t> (i)] - static_cast<float> (mean);
         centeredFrame[static_cast<std::size_t> (i)] = value;
-        energy += static_cast<double> (value) * value;
+        energy += value * value;
     }
     const float rms = static_cast<float> (std::sqrt (energy / frameSize));
     const float levelDb = 20.0f * std::log10 (std::max (rms, 1.0e-6f));
