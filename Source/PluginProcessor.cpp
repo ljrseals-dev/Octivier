@@ -79,8 +79,16 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     pitchHistory.assign (historySize, 0.0f);
     historyWrite = delayWrite = 0;
     modSampleCount = 0;
-    const bool acfPrepared = acfTracker.prepare (currentSampleRate, 2048, kMinF0, kMaxF0);
+    // Keep the ACF window long enough to reach the configured minimum F0
+    // at every supported sample rate. Preserve the 2,048-sample 48 kHz
+    // configuration and scale by powers of two as the sample rate rises.
+    const int requiredHalfFrame = static_cast<int> (std::ceil (currentSampleRate / kMinF0));
+    int acfFrameSize = 2048;
+    while (acfFrameSize / 2 < requiredHalfFrame)
+        acfFrameSize *= 2;
+    const bool acfPrepared = acfTracker.prepare (currentSampleRate, acfFrameSize, kMinF0, kMaxF0);
     jassert (acfPrepared);
+    acfFrameScratch.assign (acfPrepared ? static_cast<size_t> (acfTracker.getFrameSize()) : 0U, 0.0f);
     juce::ignoreUnused (acfPrepared);
 
     const bool yinPrepared = yinTracker.prepare (currentSampleRate, kMinF0, kMaxF0, 2.5f);
@@ -139,19 +147,24 @@ void OctivierAudioProcessor::pushPitchHistory (const float* data, int samples)
 
 float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
 {
-    constexpr int frameN = 2048;
+    const int frameN = acfTracker.getFrameSize();
     const size_t histSize = pitchHistory.size();
-    if (histSize < static_cast<size_t> (frameN)) return 0.0f;
+    if (! acfTracker.isPrepared() || frameN <= 0
+        || histSize < static_cast<size_t> (frameN)
+        || acfFrameScratch.size() != static_cast<size_t> (frameN))
+        return 0.0f;
 
-    // historyWrite is the next-write index. Start at the oldest sample in the
-    // newest complete frame and copy it into chronological linear storage.
-    std::array<float, frameN> frame {};
+    // historyWrite is the next-write index. Copy the newest complete frame in
+    // chronological order into storage allocated by prepareToPlay().
     const size_t start = (historyWrite + histSize - static_cast<size_t> (frameN)) % histSize;
-    for (int i = 0; i < frameN; ++i)
-        frame[static_cast<size_t> (i)] =
-            pitchHistory[(start + static_cast<size_t> (i)) % histSize];
+    const size_t firstPart = std::min (static_cast<size_t> (frameN), histSize - start);
+    std::memcpy (acfFrameScratch.data(), pitchHistory.data() + start,
+                 sizeof (float) * firstPart);
+    if (firstPart < static_cast<size_t> (frameN))
+        std::memcpy (acfFrameScratch.data() + firstPart, pitchHistory.data(),
+                     sizeof (float) * (static_cast<size_t> (frameN) - firstPart));
 
-    return acfTracker.estimate (frame.data(), frameN, gateDb, sensitivity, confidence);
+    return acfTracker.estimate (acfFrameScratch.data(), frameN, gateDb, sensitivity, confidence);
 }
 
 float OctivierAudioProcessor::estimatePitchYinForValidation (float gateDb, float& outConfidence) noexcept

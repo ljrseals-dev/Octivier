@@ -95,7 +95,7 @@ private:
 
     double currentSampleRate = 48000.0;
     int blockCounter = 0;
-    std::vector<float> pitchHistory, delayLeft, delayRight, yinFrameScratch;
+    std::vector<float> pitchHistory, acfFrameScratch, delayLeft, delayRight, yinFrameScratch;
     AcfPitchTracker acfTracker;
     YinPitchTracker yinTracker;
     std::unique_ptr<juce::dsp::FFT> meterFft;
