@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -98,8 +99,10 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
         std::uniform_real_distribution<float> initial (-1.0f, 1.0f);
         for (auto& sample : delay) sample = initial (rng);
         int index = 0;
+        const int onset = count / 2;
         for (int i = 0; i < count; ++i)
         {
+            if (i < onset) { signal[static_cast<std::size_t> (i)] = 0.0f; continue; }
             const int next = (index + 1) % period;
             const float current = delay[static_cast<std::size_t> (index)];
             const float averaged = 0.5f * (current + delay[static_cast<std::size_t> (next)]);
@@ -112,8 +115,14 @@ void synthesize (std::vector<float>& signal, double sr, double hz,
 
     for (int i = 0; i < count; ++i)
     {
-        const double t = static_cast<double> (i) / sr;
-        const double cycles = hz * t + phase;
+        const int onset = count / 2;
+        if (kind == Signal::SawAdsr && i < onset)
+        {
+            signal[static_cast<std::size_t> (i)] = 0.0f;
+            continue;
+        }
+        const double t = static_cast<double> (kind == Signal::SawAdsr ? i - onset : i) / sr;
+        const double cycles = hz * static_cast<double> (i) / sr + phase;
         const double fractional = cycles - std::floor (cycles);
         float value = kind == Signal::Sine
             ? static_cast<float> (std::sin (2.0 * kPi * cycles))
@@ -189,13 +198,15 @@ void runConfig (const Config& config, bool quick)
                 std::normal_distribution<float> normal (0.0f, 1.0f);
                 double signalPower = 0.0, noisePower = 0.0;
                 for (std::size_t i = 0; i < clean.size(); ++i)
-                {
                     noise[i] = normal (rng);
-                    signalPower += static_cast<double> (clean[i]) * clean[i];
-                    noisePower += static_cast<double> (noise[i]) * noise[i];
+                for (int i = preRoll; i < preRoll + frameSize; ++i)
+                {
+                    const auto index = static_cast<std::size_t> (i);
+                    signalPower += static_cast<double> (clean[index]) * clean[index];
+                    noisePower += static_cast<double> (noise[index]) * noise[index];
                 }
-                signalPower /= clean.size();
-                noisePower /= clean.size();
+                signalPower /= frameSize;
+                noisePower /= frameSize;
 
                 for (int snrIndex = 0; snrIndex < static_cast<int> (kSnrDb.size()); ++snrIndex)
                 {
