@@ -82,8 +82,10 @@ int main()
     }
     else
     {
-        std::vector<float> extremeFrame (static_cast<std::size_t> (overflowTracker.getFrameSize()),
-                                         std::numeric_limits<float>::max());
+        std::vector<float> extremeFrame (static_cast<std::size_t> (overflowTracker.getFrameSize()));
+        for (std::size_t i = 0; i < extremeFrame.size(); ++i)
+            extremeFrame[i] = (i & 1U) != 0U ? -std::numeric_limits<float>::max()
+                                             : std::numeric_limits<float>::max();
         float extremeConfidence = 0.8f;
         if (overflowTracker.estimate (extremeFrame.data(), overflowTracker.getFrameSize(),
                                       -90.0f, extremeConfidence) != 0.0f
