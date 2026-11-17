@@ -125,8 +125,8 @@ int main (int argc, char** argv)
 
     auto& summary = dumpCsv ? std::cerr : std::cout;
     summary << "PASS: " << compared
-            << " same-build ACF frames bit-identical across 5 s sweep + 5 s silence.\\n";
+            << " same-build ACF frames bit-identical across 5 s sweep + 5 s silence.\n";
     summary << "NOTE: this compares the extracted implementation with a frozen in-test copy; "
-               "it is not a cross-compiler/architecture guarantee.\\n";
+               "it is not a cross-compiler/architecture guarantee.\n";
     return 0;
 }
