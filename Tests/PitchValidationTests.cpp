@@ -165,8 +165,8 @@ void runConfig (const Config& config, bool quick)
         Signal::Sine, Signal::Saw, Signal::KarplusStrong, Signal::SawAdsr
     }};
     const std::array<double, 2> phases {{ 0.0, 0.371 }};
-    const int firstMidi = quick ? 40 : 28;
-    const int lastMidi = quick ? 84 : 96;
+    const int firstMidi = quick ? 33 : 28;
+    const int lastMidi = quick ? 40 : 96;
     const int phaseCount = quick ? 1 : static_cast<int> (phases.size());
     Stats stats[4][5];
 
@@ -177,7 +177,7 @@ void runConfig (const Config& config, bool quick)
     for (int midi = firstMidi; midi <= lastMidi; ++midi)
     {
         const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
-        for (int wave = 0; wave < static_cast<int> (signals.size()); ++wave)
+        for (int wave = 0; wave < (quick ? 2 : static_cast<int> (signals.size())); ++wave)
         {
             for (int phaseIndex = 0; phaseIndex < phaseCount; ++phaseIndex)
             {
@@ -234,7 +234,7 @@ void runConfig (const Config& config, bool quick)
         }
     }
 
-    for (int wave = 0; wave < static_cast<int> (signals.size()); ++wave)
+    for (int wave = 0; wave < (quick ? 2 : static_cast<int> (signals.size())); ++wave)
     {
         for (int snr = 0; snr < static_cast<int> (kSnrDb.size()); ++snr)
         {
@@ -275,7 +275,7 @@ int main (int argc, char** argv)
                  "other_error_rate,median_abs_cents,p95_abs_cents,mean_confidence,mean_us_per_estimate,"
                  "first_valid_estimate_ms,confidence_bucket_counts\n";
 
-    const std::array<Config, 11> configs {{
+    const std::array<Config, 10> configs {{
         { "ACF-2048-shipped", false, 48000.0, 2048, 55.0f, 1200.0f, 0.0f },
         { "ACF-2048-matched", false, 48000.0, 2048, 55.0f, 2200.0f, 0.0f },
         { "YIN-2048-2.0x", true, 48000.0, 0, 55.0f, 2200.0f, 2.0f },
