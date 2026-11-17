@@ -31,6 +31,19 @@ if (OCTIVIER_PROTOCOL_TESTS_ONLY)
     endif()
     add_test(NAME PitchTrackerPreparationTests COMMAND PitchTrackerPreparationTests)
 
+    add_executable(AcfBehaviorPreservationTests
+        Tests/AcfBehaviorPreservationTests.cpp
+        Source/AcfPitchTracker.cpp
+    )
+    target_include_directories(AcfBehaviorPreservationTests PRIVATE Source)
+    target_compile_features(AcfBehaviorPreservationTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(AcfBehaviorPreservationTests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(AcfBehaviorPreservationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME AcfBehaviorPreservationTests COMMAND AcfBehaviorPreservationTests)
+
     add_executable(PitchValidation
         Tests/PitchValidationTests.cpp
         Source/AcfPitchTracker.cpp
