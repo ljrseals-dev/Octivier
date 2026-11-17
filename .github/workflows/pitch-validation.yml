@@ -41,6 +41,8 @@ jobs:
       - name: Commit measured CSV results to this branch
         if: github.event_name == 'push'
         run: |
+          git fetch origin "${GITHUB_REF_NAME}"
+          git reset --hard "origin/${GITHUB_REF_NAME}"
           mkdir -p Tests/results
           cp acf-preservation.csv Tests/results/acf-preservation.csv
           cp pitch-validation-full.csv Tests/results/pitch-validation-full.csv
