@@ -60,7 +60,7 @@ bool checkSine (double frequency, double phase, int& legacyMisselections)
             globalMax = std::max (globalMax, scores[static_cast<std::size_t> (offset)]);
     }
 
-    const float threshold = 0.85f * globalMax;
+    const float threshold = (0.90f - 0.10f * 0.62f) * globalMax;
     const int selected = firstLocalPeakAboveThreshold (scores.data(), candidateCount, threshold);
     if (selected < 0)
     {
