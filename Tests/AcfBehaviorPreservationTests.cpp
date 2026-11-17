@@ -123,9 +123,10 @@ int main (int argc, char** argv)
         ++compared;
     }
 
-    std::cout << "PASS: " << compared
-              << " same-build ACF frames bit-identical across 5 s sweep + 5 s silence.\n";
-    std::cout << "NOTE: this compares the extracted implementation with a frozen in-test copy; "
-                 "it is not a cross-compiler/architecture guarantee.\n";
+    auto& summary = dumpCsv ? std::cerr : std::cout;
+    summary << "PASS: " << compared
+            << " same-build ACF frames bit-identical across 5 s sweep + 5 s silence.\\n";
+    summary << "NOTE: this compares the extracted implementation with a frozen in-test copy; "
+               "it is not a cross-compiler/architecture guarantee.\\n";
     return 0;
 }
