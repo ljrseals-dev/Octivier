@@ -393,7 +393,6 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     const size_t delayCapacity = delayLeft.size();
     double blockInputSq = 0.0, blockOutputSq = 0.0;
-    const float rmsGainStart = rmsCompGain;
     const int baseDelay = juce::jlimit (1, static_cast<int> (delayCapacity - 2), static_cast<int> (delayMs * 0.001 * currentSampleRate));
     const auto* gen = activeSlot >= 0 ? &generations[static_cast<size_t> (activeSlot)] : nullptr;
     const std::uint64_t modBase = modSampleCount;
