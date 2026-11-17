@@ -107,6 +107,16 @@ int main()
         ok = false;
     }
 
+    AcfPitchTracker acf96, acf192;
+    if (! acf96.prepare (96000.0, 4096, 55.0f, 1200.0f)
+        || acf96.getTauMax() < static_cast<int> (std::ceil (96000.0 / 55.0))
+        || ! acf192.prepare (192000.0, 8192, 55.0f, 1200.0f)
+        || acf192.getTauMax() < static_cast<int> (std::ceil (192000.0 / 55.0)))
+    {
+        std::cerr << "FAIL: ACF sample-rate-scaled frames do not reach 55 Hz\n";
+        ok = false;
+    }
+
     if (! ok) return 1;
     std::cout << "PASS: YIN frame sizing, 96 kHz low-F0 reachability, invalid-config rejection, and ACF preparation.\n";
     std::cout << "NOTE: this is a preparation/low-frequency smoke test, not the full accuracy/noise/transient benchmark.\n";
