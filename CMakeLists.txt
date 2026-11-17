@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
 project(Octivier VERSION 1.0.0 LANGUAGES CXX)
 
-option(OCTIVIER_PROTOCOL_TESTS_ONLY "Build only the JUCE-independent concurrency protocol test" OFF)
+option(OCTIVIER_PROTOCOL_TESTS_ONLY "Build only the JUCE-independent tests" OFF)
+option(OCTIVIER_ENABLE_TSAN "Build standalone protocol tests with ThreadSanitizer" OFF)
+option(OCTIVIER_ENABLE_RTSAN "Build Octivier with RealtimeSanitizer (Clang only)" OFF)
 if (OCTIVIER_PROTOCOL_TESTS_ONLY)
     enable_testing()
     add_executable(OctivierSlotOwnershipTests Tests/SlotOwnershipTests.cpp)
@@ -14,6 +16,28 @@ if (OCTIVIER_PROTOCOL_TESTS_ONLY)
         target_link_libraries(OctivierSlotOwnershipTests PRIVATE Threads::Threads)
     endif()
     add_test(NAME OctivierSlotOwnershipTests COMMAND OctivierSlotOwnershipTests)
+
+    add_executable(PitchTrackerPreparationTests
+        Tests/PitchTrackerPreparationTests.cpp
+        Source/AcfPitchTracker.cpp
+        Source/YinPitchTracker.cpp
+    )
+    target_include_directories(PitchTrackerPreparationTests PRIVATE Source)
+    target_compile_features(PitchTrackerPreparationTests PRIVATE cxx_std_17)
+    if (MSVC)
+        target_compile_options(PitchTrackerPreparationTests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(PitchTrackerPreparationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME PitchTrackerPreparationTests COMMAND PitchTrackerPreparationTests)
+
+    if (OCTIVIER_ENABLE_TSAN)
+        if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+            message(FATAL_ERROR "ThreadSanitizer requires Clang or GCC")
+        endif()
+        target_compile_options(OctivierSlotOwnershipTests PRIVATE -fsanitize=thread -g -O1)
+        target_link_options(OctivierSlotOwnershipTests PRIVATE -fsanitize=thread)
+    endif()
     return()
 endif()
 
@@ -45,6 +69,8 @@ juce_add_plugin(Octivier
 target_sources(Octivier PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/AcfPitchTracker.cpp
+    Source/YinPitchTracker.cpp
 )
 target_compile_features(Octivier PRIVATE cxx_std_17)
 target_compile_definitions(Octivier PUBLIC
@@ -68,4 +94,17 @@ if (OCTIVIER_BUILD_TESTS)
     target_compile_definitions(OctivierSmokeTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Octivier")
     target_link_libraries(OctivierSmokeTests PRIVATE juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
     add_test(NAME OctivierSmokeTests COMMAND OctivierSmokeTests)
+endif()
+
+if (OCTIVIER_ENABLE_RTSAN)
+    if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "RealtimeSanitizer requires Clang")
+    endif()
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("-fsanitize=realtime" HAVE_RTSAN)
+    if (NOT HAVE_RTSAN)
+        message(FATAL_ERROR "Compiler does not support -fsanitize=realtime")
+    endif()
+    target_compile_options(Octivier PRIVATE -fsanitize=realtime -g)
+    target_link_options(Octivier PRIVATE -fsanitize=realtime)
 endif()
