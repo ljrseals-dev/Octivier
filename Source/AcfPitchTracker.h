@@ -22,5 +22,5 @@ private:
     float minF0 = 0.0f, maxF0 = 0.0f;
     int frameSize = 0, minLag = 0, maxLag = 0;
     bool prepared = false;
-    std::vector<float> lagScores;
+    std::vector<float> lagScores, centeredFrame;
 };
