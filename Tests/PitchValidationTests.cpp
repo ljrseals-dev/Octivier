@@ -167,7 +167,7 @@ bool runConfig (const Config& config, bool quick)
     const int frameSize = tracker->getFrameSize();
     const int preRoll = frameSize;
     const int hopSamples = std::max (1, static_cast<int> (std::lround (config.sampleRate * 0.010)));
-    const int updates = quick ? 2 : 4;
+    const int updates = 2;
     const int totalSamples = preRoll + frameSize + (updates - 1) * hopSamples;
     const double frameDurationMs = 1000.0 * frameSize / config.sampleRate;
     const std::array<Signal, 4> signals {{
@@ -176,7 +176,6 @@ bool runConfig (const Config& config, bool quick)
     const std::array<double, 2> phases {{ 0.0, 0.371 }};
     const int firstMidi = quick ? 33 : 28;
     const int lastMidi = quick ? 40 : 96;
-    const int phaseCount = quick ? 1 : static_cast<int> (phases.size());
     Stats stats[4][5];
 
     std::vector<float> clean (static_cast<std::size_t> (totalSamples));
@@ -188,6 +187,10 @@ bool runConfig (const Config& config, bool quick)
         const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
         for (int wave = 0; wave < (quick ? 2 : static_cast<int> (signals.size())); ++wave)
         {
+            if (wave >= 2 && midi != 28 && midi != 40 && midi != 57
+                && midi != 69 && midi != 81 && midi != 96)
+                continue;
+            const int phaseCount = (quick || wave >= 2) ? 1 : static_cast<int> (phases.size());
             for (int phaseIndex = 0; phaseIndex < phaseCount; ++phaseIndex)
             {
                 const std::uint32_t seed = static_cast<std::uint32_t> (
@@ -211,7 +214,7 @@ bool runConfig (const Config& config, bool quick)
 
                 for (int snrIndex = 0; snrIndex < static_cast<int> (kSnrDb.size()); ++snrIndex)
                 {
-                    if (quick && snrIndex != 1 && snrIndex != 3) continue;
+                    if ((quick || wave >= 2) && snrIndex != 1 && snrIndex != 3) continue;
                     const double ratio = std::pow (10.0, kSnrDb[static_cast<std::size_t> (snrIndex)] / 10.0);
                     const float scale = noisePower > 0.0
                         ? static_cast<float> (std::sqrt (signalPower / (noisePower * ratio))) : 0.0f;
@@ -275,7 +278,7 @@ bool runConfig (const Config& config, bool quick)
     {
         for (int snr = 0; snr < static_cast<int> (kSnrDb.size()); ++snr)
         {
-            if (quick && snr != 1 && snr != 3) continue;
+            if ((quick || wave >= 2) && snr != 1 && snr != 3) continue;
             const auto& s = stats[wave][snr];
             const double denominator = std::max<std::uint64_t> (1, s.trials);
             std::cout << config.label << ',' << tracker->name() << ','

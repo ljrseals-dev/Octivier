@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure JUCE-independent targets
-        run: cmake -S . -B build -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON
+        run: cmake -S . -B build -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DCMAKE_BUILD_TYPE=Release
 
       - name: Build tests and benchmark
         run: cmake --build build --parallel 2
