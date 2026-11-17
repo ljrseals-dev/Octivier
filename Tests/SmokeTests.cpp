@@ -1,4 +1,5 @@
 #include "../Source/PluginProcessor.h"
+#include "../Source/Presets.h"
 #include <iostream>
 #include <cmath>
 
@@ -29,6 +30,21 @@ int main()
     }
     juce::MemoryBlock state; p.getStateInformation (state);
     if (state.getSize() == 0) { std::cerr << "FAIL: empty state\n"; return 1; }
-    std::cout << "PASS: finite-output and state-serialization smoke test. Not a host or sound-quality certification.\n";
+    // Preset switching must overwrite values unique to the previously selected preset.
+    octivier::presets::apply (2, p.parameters);  // Warm Soul (Tube)
+    octivier::presets::apply (10, p.parameters); // Null Bypass (Clean)
+    auto* character = p.parameters.getRawParameterValue ("character");
+    auto* characterAmt = p.parameters.getRawParameterValue ("characterAmt");
+    auto* strength = p.parameters.getRawParameterValue ("strength");
+    auto* mix = p.parameters.getRawParameterValue ("mix");
+    if (character == nullptr || characterAmt == nullptr || strength == nullptr || mix == nullptr
+        || character->load() != 0.0f || characterAmt->load() != 0.0f
+        || strength->load() != 0.0f || mix->load() != 1.0f)
+    {
+        std::cerr << "FAIL: preset switch retained stale parameter values\\n";
+        return 1;
+    }
+
+    std::cout << "PASS: finite-output, state-serialization, and preset-snapshot smoke checks. Not a host or sound-quality certification.\\n";
     return 0;
 }
