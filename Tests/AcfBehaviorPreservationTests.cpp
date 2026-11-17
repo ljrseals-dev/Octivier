@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace
@@ -69,8 +70,10 @@ float legacyEstimate (const float* input, double sampleRate,
 }
 }
 
-int main()
+int main (int argc, char** argv)
 {
+    const bool dumpCsv = argc > 1 && std::string (argv[1]) == "--csv";
+    if (dumpCsv) std::cout << "frame_index,legacy_hz,legacy_confidence,extracted_hz,extracted_confidence\\n";
     constexpr double sampleRate = 48000.0;
     constexpr int totalSamples = 10 * 48000;
     constexpr int hop = 480; // 10 ms; first half sweep, second half silence.
@@ -107,6 +110,9 @@ int main()
                                                 0.62f, legacyConfidence);
         const float extractedHz = extracted.estimate (frame.data(), frameSize, -55.0f,
                                                         0.62f, extractedConfidence);
+        if (dumpCsv)
+            std::cout << compared << ',' << legacyHz << ',' << legacyConfidence << ','
+                      << extractedHz << ',' << extractedConfidence << '\\n';
         if (legacyHz != extractedHz || legacyConfidence != extractedConfidence)
         {
             std::cerr << "FAIL: ACF extraction differs at frame " << compared
