@@ -23,12 +23,17 @@ jobs:
       - name: Run regression tests
         run: ctest --test-dir build --output-on-failure
 
+      - name: Export ACF equivalence CSV
+        run: ./build/AcfBehaviorPreservationTests --csv > acf-preservation.csv
+
       - name: Run bounded pitch benchmark smoke matrix
         run: ./build/PitchValidation --quick > pitch-validation-quick.csv
 
-      - name: Upload quick benchmark output
+      - name: Upload benchmark evidence
         uses: actions/upload-artifact@v4
         with:
-          name: pitch-validation-quick
-          path: pitch-validation-quick.csv
+          name: pitch-validation-evidence
+          path: |
+            acf-preservation.csv
+            pitch-validation-quick.csv
           if-no-files-found: error
