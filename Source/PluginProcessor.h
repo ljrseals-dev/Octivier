@@ -6,6 +6,7 @@
 #include <vector>
 #include "AcfPitchTracker.h"
 #include "YinPitchTracker.h"
+#include "RmsCompensation.h"
 
 /** Octivier Harmonic Sculptor audio processor.
     Harmonic-timbre sculptor; it does not guarantee octave translation.
@@ -108,9 +109,7 @@ private:
     std::uint64_t modSampleCount = 0;
     float smoothedF0 = 0.0f, confidence = 0.0f;
     float smoothStrength = 0.85f, smoothFocus = 0.0f, smoothMix = 0.0f, smoothOutput = 1.0f;
-    // RMS compensation envelope state; exclusively owned by the audio thread.
-    double inputRmsPower = 0.0, outputRmsPower = 0.0;
-    float rmsCompGain = 1.0f;
+    RmsCompensation rmsCompensation;
     std::array<Generation, kGenerationSlots> generations;
     std::array<ChannelBank, 2> channelBank;
     RequestMailbox coeffRequest;
