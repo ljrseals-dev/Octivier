@@ -4,6 +4,9 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+#include "AcfPitchTracker.h"
+#include "YinPitchTracker.h"
+#include "RmsCompensation.h"
 
 /** Octivier Harmonic Sculptor audio processor.
     Harmonic-timbre sculptor; it does not guarantee octave translation.
@@ -93,7 +96,9 @@ private:
 
     double currentSampleRate = 48000.0;
     int blockCounter = 0;
-    std::vector<float> pitchHistory, delayLeft, delayRight, lagScores;
+    std::vector<float> pitchHistory, acfFrameScratch, delayLeft, delayRight, yinFrameScratch;
+    AcfPitchTracker acfTracker;
+    YinPitchTracker yinTracker;
     std::unique_ptr<juce::dsp::FFT> meterFft;
     std::array<float, kMeterFftSize> meterWindow {};
     std::array<float, 2 * kMeterFftSize> meterBuffer {};
@@ -104,6 +109,7 @@ private:
     std::uint64_t modSampleCount = 0;
     float smoothedF0 = 0.0f, confidence = 0.0f;
     float smoothStrength = 0.85f, smoothFocus = 0.0f, smoothMix = 0.0f, smoothOutput = 1.0f;
+    RmsCompensation rmsCompensation;
     std::array<Generation, kGenerationSlots> generations;
     std::array<ChannelBank, 2> channelBank;
     RequestMailbox coeffRequest;
@@ -114,6 +120,7 @@ private:
     std::atomic<bool> trackingActive { false };
 
     float estimatePitch (float gateDb, float sensitivity);
+    float estimatePitchYinForValidation (float gateDb, float& outConfidence) noexcept;
     void pushPitchHistory (const float* data, int samples);
     bool publishRequest (const CoeffRequest&) noexcept;
     void buildGeneration (Generation&, const CoeffRequest&);

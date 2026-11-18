@@ -1,8 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "AcfPeakSelection.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -71,14 +71,29 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     // Reconfiguration is a non-real-time lifecycle operation: stop the worker
     // before touching any data it can access, then restart only after reset.
     if (worker != nullptr) worker->stopThread (-1);
-    currentSampleRate = juce::jmax (sampleRate, 8000.0);
+    // A malformed host rate must not flow into integer sizing, delay allocation,
+    // or DSP coefficient calculations. Fall back to a conservative supported rate.
+    currentSampleRate = std::isfinite (sampleRate) && sampleRate >= 8000.0 && sampleRate <= 768000.0
+        ? sampleRate : 48000.0;
     const auto historySize = static_cast<size_t> (juce::jmax (4096, static_cast<int> (currentSampleRate * 0.10)));
     pitchHistory.assign (historySize, 0.0f);
     historyWrite = delayWrite = 0;
     modSampleCount = 0;
-    const int minPitchLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxPitchLag = juce::jmin (2048 / 2, static_cast<int> (std::ceil (currentSampleRate / kMinF0)));
-    lagScores.assign (static_cast<size_t> (juce::jmax (0, maxPitchLag - minPitchLag + 3)), 0.0f);
+    // Keep the ACF window long enough to reach the configured minimum F0
+    // at every supported sample rate. Preserve the 2,048-sample 48 kHz
+    // configuration and scale by powers of two as the sample rate rises.
+    const int requiredHalfFrame = static_cast<int> (std::ceil (currentSampleRate / kMinF0));
+    int acfFrameSize = 2048;
+    while (acfFrameSize / 2 < requiredHalfFrame)
+        acfFrameSize *= 2;
+    const bool acfPrepared = acfTracker.prepare (currentSampleRate, acfFrameSize, kMinF0, kMaxF0);
+    jassert (acfPrepared);
+    acfFrameScratch.assign (acfPrepared ? static_cast<size_t> (acfTracker.getFrameSize()) : 0U, 0.0f);
+    juce::ignoreUnused (acfPrepared);
+
+    const bool yinPrepared = yinTracker.prepare (currentSampleRate, kMinF0, kMaxF0, 2.5f);
+    jassert (yinPrepared);
+    yinFrameScratch.assign (yinPrepared ? static_cast<size_t> (yinTracker.getFrameSize()) : 0U, 0.0f);
     meterFft = std::make_unique<juce::dsp::FFT> (kMeterFftOrder);
     for (int i = 0; i < kMeterFftSize; ++i)
         meterWindow[static_cast<size_t> (i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float> (i) / static_cast<float> (kMeterFftSize - 1));
@@ -90,6 +105,7 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     delayLeft.assign (maxDelay, 0.0f);
     delayRight.assign (maxDelay, 0.0f);
     smoothedF0 = confidence = 0.0f;
+    rmsCompensation.reset();
     blockCounter = 0;
     smoothStrength = readParam (parameters, "strength");
     smoothFocus = readParam (parameters, "focus");
@@ -132,62 +148,48 @@ void OctivierAudioProcessor::pushPitchHistory (const float* data, int samples)
 
 float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
 {
-    const size_t n = pitchHistory.size();
-    if (n < 2048) return 0.0f;
-    constexpr int frameN = 2048;
-    std::array<float, frameN> x {};
-    double energy = 0.0, mean = 0.0;
-    for (int i = 0; i < frameN; ++i)
-    {
-        const auto idx = (historyWrite + n - frameN + static_cast<size_t> (i)) % n;
-        x[static_cast<size_t> (i)] = pitchHistory[idx];
-        mean += x[static_cast<size_t> (i)];
-    }
-    mean /= frameN;
-    for (auto& v : x) { v -= static_cast<float> (mean); energy += v * v; }
-    const float rms = static_cast<float> (std::sqrt (energy / frameN));
-    if (gainToDb (rms) < gateDb) { confidence *= 0.75f; return 0.0f; }
-    const int minLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxLag = juce::jmin (frameN / 2,
-                                   static_cast<int> (std::ceil (currentSampleRate / kMinF0)));
-    const int lagCount = juce::jmax (0, maxLag - minLag + 1);
-    if (lagCount <= 0 || lagScores.size() < static_cast<size_t> (lagCount + 2))
-    { confidence *= 0.8f; return 0.0f; }
+    const int frameN = acfTracker.getFrameSize();
+    const size_t histSize = pitchHistory.size();
+    if (! acfTracker.isPrepared() || frameN <= 0
+        || histSize < static_cast<size_t> (frameN)
+        || acfFrameScratch.size() != static_cast<size_t> (frameN))
+        return 0.0f;
 
-    // Include one score outside each end of the permitted range. Without the
-    // right-hand neighbor, a low-F0 peak at the upper boundary is invisible.
-    float globalMax = 0.0f;
-    for (int offset = 0; offset < lagCount + 2; ++offset)
-    {
-        const int lag = minLag - 1 + offset;
-        double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
-        for (int i = 0; i < frameN - lag; i += 2)
-        {
-            const double a = x[static_cast<size_t> (i)], b = x[static_cast<size_t> (i + lag)];
-            xy += a * b; xx += a * a; yy += b * b;
-        }
-        const float score = static_cast<float> (xy / std::sqrt (xx * yy));
-        lagScores[static_cast<size_t> (offset)] = score;
-        if (offset > 0 && offset <= lagCount)
-            globalMax = std::max (globalMax, score);
-    }
-    if (globalMax < 0.20f) { confidence *= 0.8f; return 0.0f; }
+    // historyWrite is the next-write index. Copy the newest complete frame in
+    // chronological order into storage allocated by prepareToPlay().
+    const size_t start = (historyWrite + histSize - static_cast<size_t> (frameN)) % histSize;
+    const size_t firstPart = std::min (static_cast<size_t> (frameN), histSize - start);
+    std::memcpy (acfFrameScratch.data(), pitchHistory.data() + start,
+                 sizeof (float) * firstPart);
+    if (firstPart < static_cast<size_t> (frameN))
+        std::memcpy (acfFrameScratch.data() + firstPart, pitchHistory.data(),
+                     sizeof (float) * (static_cast<size_t> (frameN) - firstPart));
 
-    const float acceptance = juce::jlimit (0.75f, 0.95f, 0.90f - 0.10f * sensitivity);
-    const float threshold = acceptance * globalMax;
-    const int bestIndex = firstLocalPeakAboveThreshold (lagScores.data(), lagCount, threshold);
-    if (bestIndex < 0) { confidence *= 0.8f; return 0.0f; }
+    return acfTracker.estimate (acfFrameScratch.data(), frameN, gateDb, sensitivity, confidence);
+}
 
-    double refinedLag = static_cast<double> (minLag + bestIndex);
-    const double left = lagScores[static_cast<size_t> (bestIndex)];
-    const double centre = lagScores[static_cast<size_t> (bestIndex + 1)];
-    const double right = lagScores[static_cast<size_t> (bestIndex + 2)];
-    const double denominator = left - 2.0 * centre + right;
-    if (std::abs (denominator) > 1.0e-12)
-        refinedLag += std::clamp (0.5 * (left - right) / denominator, -0.5, 0.5);
-    const float f0 = static_cast<float> (currentSampleRate / refinedLag);
-    confidence = juce::jlimit (0.0f, 1.0f, (globalMax - 0.15f) / 0.75f);
-    return (f0 >= kMinF0 && f0 <= kMaxF0) ? f0 : 0.0f;
+float OctivierAudioProcessor::estimatePitchYinForValidation (float gateDb, float& outConfidence) noexcept
+{
+    outConfidence = 0.0f;
+    if (! yinTracker.isPrepared()) return 0.0f;
+
+    const size_t histSize = pitchHistory.size();
+    const int frameSize = yinTracker.getFrameSize();
+    if (histSize < static_cast<size_t> (frameSize)
+        || yinFrameScratch.size() != static_cast<size_t> (frameSize))
+        return 0.0f;
+
+    // historyWrite is the next-write index. Copy the newest complete frame in
+    // chronological order, including wraparound, without allocating.
+    const size_t start = (historyWrite + histSize - static_cast<size_t> (frameSize)) % histSize;
+    const size_t firstPart = std::min (static_cast<size_t> (frameSize), histSize - start);
+    std::memcpy (yinFrameScratch.data(), pitchHistory.data() + start,
+                 sizeof (float) * firstPart);
+    if (firstPart < static_cast<size_t> (frameSize))
+        std::memcpy (yinFrameScratch.data() + firstPart, pitchHistory.data(),
+                     sizeof (float) * (static_cast<size_t> (frameSize) - firstPart));
+
+    return yinTracker.estimate (yinFrameScratch.data(), frameSize, gateDb, outConfidence);
 }
 
 OctivierAudioProcessor::Biquad OctivierAudioProcessor::makePeak (double sr, float freq, float q, float gainDb) noexcept
@@ -331,9 +333,11 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const int modeIndex = juce::jlimit (0, 3, static_cast<int> (readParam (parameters, "mode")));
     const float sensitivity = readParam (parameters, "tracking");
     float detected = 0.0f;
-    blockCounter += numSamples;
-    const bool pitchUpdateDue = blockCounter >= static_cast<int> (currentSampleRate * 0.010);
-    if (pitchUpdateDue) blockCounter = 0;
+    const int pitchUpdateInterval = std::max (1, static_cast<int> (std::lround (currentSampleRate * 0.010)));
+    const std::int64_t accumulatedSamples = static_cast<std::int64_t> (blockCounter) + numSamples;
+    const bool pitchUpdateDue = accumulatedSamples >= pitchUpdateInterval;
+    // Preserve the exact scheduler remainder; account for each input sample once.
+    blockCounter = static_cast<int> (accumulatedSamples % pitchUpdateInterval);
     if (freeze) detected = readParam (parameters, "manualF0");
     else if (pitchUpdateDue)
     {
@@ -369,6 +373,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const float width = readParam (parameters, "width");
     const float delayMs = readParam (parameters, "delay");
     const float modDepth = readParam (parameters, "modDepth");
+    const bool autoGainEnabled = readParam (parameters, "autoGain") > 0.5f;
     const int character = juce::jlimit (0, 2, static_cast<int> (readParam (parameters, "character")));
     const float charAmount = readParam (parameters, "characterAmt");
     const float formantDb = readParam (parameters, "formant"), airDb = readParam (parameters, "air");
@@ -395,6 +400,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     }
 
     const size_t delayCapacity = delayLeft.size();
+    double blockInputSq = 0.0, blockOutputSq = 0.0;
     const int baseDelay = juce::jlimit (1, static_cast<int> (delayCapacity - 2), static_cast<int> (delayMs * 0.001 * currentSampleRate));
     const auto* gen = activeSlot >= 0 ? &generations[static_cast<size_t> (activeSlot)] : nullptr;
     const std::uint64_t modBase = modSampleCount;
@@ -405,6 +411,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         for (int i = 0; i < numSamples; ++i)
         {
             const float dry = data[i];
+            blockInputSq += static_cast<double> (dry) * dry;
             float wet = dry;
             if (gen != nullptr && smoothedF0 >= kMinF0 && conf >= 0.15f)
                 for (int h = 0; h < kHarmonics; ++h)
@@ -433,15 +440,17 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             const size_t modRead = (write + delayCapacity - static_cast<size_t> (juce::jlimit (1.0f, static_cast<float> (delayCapacity - 2), static_cast<float> (baseDelay) + mod))) % delayCapacity;
             const float modDelayed = ch == 0 ? delayLeft[modRead] : delayRight[modRead];
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
-            data[i] = ((1.0f - smoothMix) * decor + smoothMix * dry) * smoothOutput;
+            const float preGain = (1.0f - smoothMix) * decor + smoothMix * dry;
+            blockOutputSq += static_cast<double> (preGain) * preGain;
+            const float compensation = rmsCompensation.gain();
+            data[i] = preGain * compensation * smoothOutput;
             if (ch == channels - 1) delayWrite = (delayWrite + 1) % delayCapacity;
             juce::ignoreUnused (read);
         }
     }
-    if (readParam (parameters, "autoGain") > 0.5f)
-    {
-        // Intentionally neutral until a true input/output loudness-matching path is implemented.
-    }
+    // Update after rendering; the new gain is used on the next audio block.
+    rmsCompensation.update (blockInputSq, blockOutputSq, numSamples, channels,
+                            currentSampleRate, autoGainEnabled);
     modSampleCount += static_cast<std::uint64_t> (numSamples);
     // Measure odd/even harmonic energy from the rendered output. This is a
     // diagnostic single-bin integration, updated at 20 Hz without allocation.

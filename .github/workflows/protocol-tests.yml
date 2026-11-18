@@ -7,6 +7,7 @@ on:
 
 jobs:
   slot-ownership:
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -20,3 +21,16 @@ jobs:
         run: cmake --build build-protocol --config Release --parallel 2
       - name: Run protocol test
         run: ctest --test-dir build-protocol -C Release --output-on-failure
+
+  thread-sanitizer:
+    name: mailbox stress (ThreadSanitizer)
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure protocol test with TSan
+        run: cmake -S . -B build-tsan -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DOCTIVIER_ENABLE_TSAN=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build mailbox stress test
+        run: cmake --build build-tsan --target OctivierSlotOwnershipTests --parallel 2
+      - name: Run mailbox stress test under TSan
+        run: ctest --test-dir build-tsan -R '^OctivierSlotOwnershipTests$' --output-on-failure
