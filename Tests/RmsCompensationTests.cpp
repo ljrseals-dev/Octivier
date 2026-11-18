@@ -44,6 +44,16 @@ int main()
         ok = false;
     }
 
+    // Disabling compensation must smoothly return the gain toward unity.
+    const float beforeDisable = rms.gain();
+    for (int i = 0; i < 40; ++i)
+        rms.update (480.0, 480.0, 480, 1, 48000.0, false);
+    if (!(rms.gain() < beforeDisable && rms.gain() > 1.0f))
+    {
+        std::cerr << "FAIL: disabling did not return gain smoothly toward unity\n";
+        ok = false;
+    }
+
     // The negative correction is bounded to -12 dB as well.
     rms.reset();
     for (int i = 0; i < 150; ++i)
@@ -59,16 +69,6 @@ int main()
     if (rms.gain() > 0.27f)
     {
         std::cerr << "FAIL: attenuation did not approach the -12 dB floor\n";
-        ok = false;
-    }
-
-    // Disabling compensation must smoothly return the gain toward unity.
-    const float beforeDisable = rms.gain();
-    for (int i = 0; i < 40; ++i)
-        rms.update (480.0, 480.0, 480, 1, 48000.0, false);
-    if (!(rms.gain() < beforeDisable && rms.gain() > 1.0f))
-    {
-        std::cerr << "FAIL: disabling did not return gain smoothly toward unity\n";
         ok = false;
     }
 
