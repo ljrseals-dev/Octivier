@@ -7,6 +7,7 @@ on:
 
 jobs:
   slot-ownership:
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +24,7 @@ jobs:
 
   thread-sanitizer:
     name: mailbox stress (ThreadSanitizer)
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
