@@ -51,14 +51,14 @@ int main()
         rms.update (0.048, 480.0, 480, 1, 48000.0, true);
         if (rms.gain() < 0.25118864f || rms.gain() > 1.0f)
         {
-            std::cerr << "FAIL: attenuation escaped the +/-12 dB bound\\n";
+            std::cerr << "FAIL: attenuation escaped the +/-12 dB bound\n";
             ok = false;
             break;
         }
     }
     if (rms.gain() > 0.27f)
     {
-        std::cerr << "FAIL: attenuation did not approach the -12 dB floor\\n";
+        std::cerr << "FAIL: attenuation did not approach the -12 dB floor\n";
         ok = false;
     }
 
