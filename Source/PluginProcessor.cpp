@@ -442,7 +442,7 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
             const float preGain = (1.0f - smoothMix) * decor + smoothMix * dry;
             blockOutputSq += static_cast<double> (preGain) * preGain;
-            const float compensation = autoGainEnabled ? rmsCompensation.gain() : 1.0f;
+            const float compensation = rmsCompensation.gain();
             data[i] = preGain * compensation * smoothOutput;
             if (ch == channels - 1) delayWrite = (delayWrite + 1) % delayCapacity;
             juce::ignoreUnused (read);
