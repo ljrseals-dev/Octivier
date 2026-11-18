@@ -1,0 +1,67 @@
+name: Pitch and protocol validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ["repair/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  protocol-and-pitch-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Check test-tone generator syntax
+        run: python -m py_compile tools/make_test_tone.py
+
+      - name: Configure JUCE-independent targets
+        run: cmake -S . -B build -DOCTIVIER_PROTOCOL_TESTS_ONLY=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build tests and benchmark
+        run: cmake --build build --parallel 2
+
+      - name: Run regression tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Export ACF equivalence CSV
+        run: ./build/AcfBehaviorPreservationTests --csv > acf-preservation.csv
+
+      - name: Run bounded pitch benchmark smoke matrix
+        run: ./build/PitchValidation --quick > pitch-validation-quick.csv
+
+      - name: Run full pitch validation matrix
+        run: ./build/PitchValidation > pitch-validation-full.csv
+
+      - name: Commit measured CSV results to this branch
+        if: github.event_name == 'push'
+        run: |
+          git fetch origin "${GITHUB_REF_NAME}"
+          git reset --hard "origin/${GITHUB_REF_NAME}"
+          mkdir -p Tests/results
+          cp acf-preservation.csv Tests/results/acf-preservation.csv
+          cp pitch-validation-full.csv Tests/results/pitch-validation-full.csv
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tests/results/acf-preservation.csv Tests/results/pitch-validation-full.csv
+          if git diff --cached --quiet; then
+            echo "No benchmark CSV changes to commit."
+            exit 0
+          fi
+          git commit -m "Commit full pitch validation CSV"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Upload benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitch-validation-evidence
+          path: |
+            acf-preservation.csv
+            pitch-validation-quick.csv
+            pitch-validation-full.csv
+          if-no-files-found: error
