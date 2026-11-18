@@ -18,7 +18,7 @@
 ## Important limitations — read before use
 
 1. **No guaranteed octave translation.** Harmonic EQ changes spectral balance; it does not create missing harmonics or guarantee that listeners hear a stable octave above.
-2. **Tracker is deliberately simple.** The lag search evaluates the full candidate range and selects a strong short-lag peak, but autocorrelation can still produce octave errors and fail on breathy, polyphonic, noisy, or transient material. Intended source is monophonic.
+2. **Tracker is deliberately simple.** It selects the first local autocorrelation peak above a global-relative threshold and refines the lag parabolically. This avoids the low-frequency sine failure where the old first-sample-above-threshold rule selected the short-lag correlation shoulder. Autocorrelation can still produce octave errors and fail on breathy, polyphonic, noisy, or transient material. Intended source is monophonic.
 3. **Formant and Air are broad high-shelf tone controls, not a vocal-tract/formant-preservation model.** Their frequency responses have not yet been verified against golden curves.
 4. **RMS compensation is exposed but neutral.** It is not yet a real dry/wet loudness-matching implementation.
 5. **Decorrelator is a lightweight delay implementation.** It is not a phase-safe stereoizer and may comb-filter when blended with dry signal.

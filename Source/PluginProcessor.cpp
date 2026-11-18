@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "AcfPeakSelection.h"
 #include <algorithm>
 #include <cmath>
 
@@ -76,8 +77,8 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     historyWrite = delayWrite = 0;
     modSampleCount = 0;
     const int minPitchLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxPitchLag = juce::jmin (2048 / 2, static_cast<int> (currentSampleRate / kMinF0));
-    lagScores.assign (static_cast<size_t> (juce::jmax (0, maxPitchLag - minPitchLag + 1)), 0.0f);
+    const int maxPitchLag = juce::jmin (2048 / 2, static_cast<int> (std::ceil (currentSampleRate / kMinF0)));
+    lagScores.assign (static_cast<size_t> (juce::jmax (0, maxPitchLag - minPitchLag + 3)), 0.0f);
     meterFft = std::make_unique<juce::dsp::FFT> (kMeterFftOrder);
     for (int i = 0; i < kMeterFftSize; ++i)
         meterWindow[static_cast<size_t> (i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float> (i) / static_cast<float> (kMeterFftSize - 1));
@@ -147,15 +148,18 @@ float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
     const float rms = static_cast<float> (std::sqrt (energy / frameN));
     if (gainToDb (rms) < gateDb) { confidence *= 0.75f; return 0.0f; }
     const int minLag = juce::jmax (2, static_cast<int> (currentSampleRate / kMaxF0));
-    const int maxLag = juce::jmin (frameN / 2, static_cast<int> (currentSampleRate / kMinF0));
+    const int maxLag = juce::jmin (frameN / 2,
+                                   static_cast<int> (std::ceil (currentSampleRate / kMinF0)));
     const int lagCount = juce::jmax (0, maxLag - minLag + 1);
-    if (lagCount <= 0 || lagScores.size() < static_cast<size_t> (lagCount))
+    if (lagCount <= 0 || lagScores.size() < static_cast<size_t> (lagCount + 2))
     { confidence *= 0.8f; return 0.0f; }
 
+    // Include one score outside each end of the permitted range. Without the
+    // right-hand neighbor, a low-F0 peak at the upper boundary is invisible.
     float globalMax = 0.0f;
-    for (int k = 0; k < lagCount; ++k)
+    for (int offset = 0; offset < lagCount + 2; ++offset)
     {
-        const int lag = minLag + k;
+        const int lag = minLag - 1 + offset;
         double xy = 0.0, xx = 1.0e-12, yy = 1.0e-12;
         for (int i = 0; i < frameN - lag; i += 2)
         {
@@ -163,22 +167,25 @@ float OctivierAudioProcessor::estimatePitch (float gateDb, float sensitivity)
             xy += a * b; xx += a * a; yy += b * b;
         }
         const float score = static_cast<float> (xy / std::sqrt (xx * yy));
-        lagScores[static_cast<size_t> (k)] = score;
-        globalMax = std::max (globalMax, score);
+        lagScores[static_cast<size_t> (offset)] = score;
+        if (offset > 0 && offset <= lagCount)
+            globalMax = std::max (globalMax, score);
     }
     if (globalMax < 0.20f) { confidence *= 0.8f; return 0.0f; }
 
-    // Select the shortest period whose normalized correlation is close to
-    // the strongest candidate; unlike break-on-threshold this evaluates the
-    // full search range and avoids accepting the first weak subharmonic peak.
     const float acceptance = juce::jlimit (0.75f, 0.95f, 0.90f - 0.10f * sensitivity);
     const float threshold = acceptance * globalMax;
-    int bestLag = 0;
-    for (int k = 0; k < lagCount; ++k)
-        if (lagScores[static_cast<size_t> (k)] >= threshold)
-        { bestLag = minLag + k; break; }
-    if (bestLag == 0) { confidence *= 0.8f; return 0.0f; }
-    const float f0 = static_cast<float> (currentSampleRate / bestLag);
+    const int bestIndex = firstLocalPeakAboveThreshold (lagScores.data(), lagCount, threshold);
+    if (bestIndex < 0) { confidence *= 0.8f; return 0.0f; }
+
+    double refinedLag = static_cast<double> (minLag + bestIndex);
+    const double left = lagScores[static_cast<size_t> (bestIndex)];
+    const double centre = lagScores[static_cast<size_t> (bestIndex + 1)];
+    const double right = lagScores[static_cast<size_t> (bestIndex + 2)];
+    const double denominator = left - 2.0 * centre + right;
+    if (std::abs (denominator) > 1.0e-12)
+        refinedLag += std::clamp (0.5 * (left - right) / denominator, -0.5, 0.5);
+    const float f0 = static_cast<float> (currentSampleRate / refinedLag);
     confidence = juce::jlimit (0.0f, 1.0f, (globalMax - 0.15f) / 0.75f);
     return (f0 >= kMinF0 && f0 <= kMaxF0) ? f0 : 0.0f;
 }
