@@ -123,6 +123,7 @@ int main()
         int active = -1;
         std::uint64_t next = 1;
         std::minstd_rand rng (0xA0D10U);
+        bool finalAdopted = false;
 
         while (next <= target)
         {
@@ -153,6 +154,7 @@ int main()
                 const auto& adopted = slots[static_cast<std::size_t> (active)].payload;
                 if (! coherent (adopted) || adopted.sequence > target)
                     failure.store (true, std::memory_order_relaxed);
+                if (adopted.sequence == target) finalAdopted = true;
                 if (old >= 0 && old != replacement)
                     slots[static_cast<std::size_t> (old)].state.store (Idle, std::memory_order_release);
             }
@@ -163,8 +165,8 @@ int main()
                 std::this_thread::yield();
         }
 
-        // Drain the final successful request and adopt the last published slot.
-        bool finalAdopted = false;
+        // Drain the final successful request unless it was already adopted
+        // during the producer loop. Retain that state across both phases.
         while (! finalAdopted
                || consumed.load (std::memory_order_acquire) < published.load (std::memory_order_acquire)
                || mailbox.state.load (std::memory_order_acquire) != Empty)
