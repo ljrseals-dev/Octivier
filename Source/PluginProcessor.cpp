@@ -105,8 +105,7 @@ void OctivierAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     delayLeft.assign (maxDelay, 0.0f);
     delayRight.assign (maxDelay, 0.0f);
     smoothedF0 = confidence = 0.0f;
-    inputRmsPower = outputRmsPower = 0.0;
-    rmsCompGain = 1.0f;
+    rmsCompensation.reset();
     blockCounter = 0;
     smoothStrength = readParam (parameters, "strength");
     smoothFocus = readParam (parameters, "focus");
@@ -443,27 +442,15 @@ void OctivierAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             const float decor = ch == 1 ? ((1.0f - width) * wet + width * modDelayed) : wet;
             const float preGain = (1.0f - smoothMix) * decor + smoothMix * dry;
             blockOutputSq += static_cast<double> (preGain) * preGain;
-            const float compensation = autoGainEnabled ? rmsCompGain : 1.0f;
+            const float compensation = autoGainEnabled ? rmsCompensation.gain() : 1.0f;
             data[i] = preGain * compensation * smoothOutput;
             if (ch == channels - 1) delayWrite = (delayWrite + 1) % delayCapacity;
             juce::ignoreUnused (read);
         }
     }
-    // Pre-trim RMS matching. Update the gain after this block so the
-    // current block never contains an intra-block gain step.
-    const double sampleCount = static_cast<double> (numSamples) * static_cast<double> (channels);
-    const double inPower = blockInputSq / sampleCount;
-    const double outPower = blockOutputSq / sampleCount;
-    const double envelope = std::exp (-static_cast<double> (numSamples) / (currentSampleRate * 0.300));
-    inputRmsPower = envelope * inputRmsPower + (1.0 - envelope) * inPower;
-    outputRmsPower = envelope * outputRmsPower + (1.0 - envelope) * outPower;
-    float targetCompGain = 1.0f;
-    if (autoGainEnabled && inputRmsPower > 1.0e-10 && outputRmsPower > 1.0e-10)
-        targetCompGain = juce::jlimit (0.25118864f, 3.98107171f,
-            static_cast<float> (std::sqrt (inputRmsPower / outputRmsPower)));
-    const float compSmoothing = static_cast<float> (1.0 - std::exp (
-        -static_cast<double> (numSamples) / (currentSampleRate * 0.300)));
-    rmsCompGain += compSmoothing * (targetCompGain - rmsCompGain);
+    // Update after rendering; the new gain is used on the next audio block.
+    rmsCompensation.update (blockInputSq, blockOutputSq, numSamples, channels,
+                            currentSampleRate, autoGainEnabled);
     modSampleCount += static_cast<std::uint64_t> (numSamples);
     // Measure odd/even harmonic energy from the rendered output. This is a
     // diagnostic single-bin integration, updated at 20 Hz without allocation.
