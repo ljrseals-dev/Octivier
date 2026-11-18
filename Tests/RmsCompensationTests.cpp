@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 namespace
 {
@@ -43,6 +44,24 @@ int main()
         ok = false;
     }
 
+    // The negative correction is bounded to -12 dB as well.
+    rms.reset();
+    for (int i = 0; i < 150; ++i)
+    {
+        rms.update (0.048, 480.0, 480, 1, 48000.0, true);
+        if (rms.gain() < 0.25118864f || rms.gain() > 1.0f)
+        {
+            std::cerr << "FAIL: attenuation escaped the +/-12 dB bound\\n";
+            ok = false;
+            break;
+        }
+    }
+    if (rms.gain() > 0.27f)
+    {
+        std::cerr << "FAIL: attenuation did not approach the -12 dB floor\\n";
+        ok = false;
+    }
+
     // Disabling compensation must smoothly return the gain toward unity.
     const float beforeDisable = rms.gain();
     for (int i = 0; i < 40; ++i)
@@ -60,6 +79,7 @@ int main()
     const float beforeInvalid = rms.gain();
     rms.update (1.0, 1.0, 0, 2, 48000.0, true);
     rms.update (1.0, 1.0, 480, 2, 0.0, true);
+    rms.update (std::numeric_limits<double>::quiet_NaN(), 1.0, 480, 2, 48000.0, true);
     if (! std::isfinite (rms.gain()) || ! near (rms.gain(), beforeInvalid))
     {
         std::cerr << "FAIL: silence/invalid block corrupted RMS state\n";
