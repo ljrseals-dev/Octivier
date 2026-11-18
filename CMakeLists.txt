@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Octivier VERSION 1.0.0 LANGUAGES CXX)
+project(Octivier VERSION 1.0.0 LANGUAGES C CXX)
 
 option(OCTIVIER_PROTOCOL_TESTS_ONLY "Build only the JUCE-independent tests" OFF)
 option(OCTIVIER_ENABLE_TSAN "Build standalone protocol tests with ThreadSanitizer" OFF)
