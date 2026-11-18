@@ -1,0 +1,59 @@
+name: VST3 plugin build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ["build/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: octivier-vst3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vst3-windows:
+    name: Build Steinberg VST3 (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Octivier
+        uses: actions/checkout@v4
+
+      - name: Check out pinned JUCE 8 framework and VST3 wrapper
+        uses: actions/checkout@v4
+        with:
+          repository: juce-framework/JUCE
+          ref: 8.0.17-security
+          path: JUCE
+          fetch-depth: 1
+
+      - name: Configure VST3 build
+        run: cmake -S . -B build-vst3 -DJUCE_DIR="${{ github.workspace }}/JUCE" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile VST3 plugin
+        run: cmake --build build-vst3 --config Release --target Octivier_VST3 --parallel 2
+
+      - name: Verify VST3 bundle exists
+        shell: pwsh
+        run: |
+          $pluginRoot = Join-Path "${{ github.workspace }}" "build-vst3/Octivier_artefacts/Release/VST3"
+          if (-not (Test-Path $pluginRoot -PathType Container)) {
+            throw "VST3 output directory was not created: $pluginRoot"
+          }
+          $bundle = Get-ChildItem $pluginRoot -Directory -Filter "*.vst3" | Select-Object -First 1
+          if (-not $bundle) {
+            throw "Build completed but no .vst3 bundle was found in $pluginRoot"
+          }
+          Write-Host "Built VST3 bundle: $($bundle.FullName)"
+
+      - name: Upload VST3 build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: octivier-vst3-windows-x64
+          path: build-vst3/Octivier_artefacts/Release/VST3/
+          if-no-files-found: error
+          retention-days: 14
