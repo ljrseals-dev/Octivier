@@ -27,7 +27,7 @@ int main()
 
     // A 20 dB reduction requests +20 dB, but compensation must stop at +12 dB.
     rms.reset();
-    for (int i = 0; i < 40; ++i)
+    for (int i = 0; i < 150; ++i)
     {
         rms.update (480.0, 0.048, 480, 1, 48000.0, true);
         if (rms.gain() > 3.98107171f || rms.gain() < 1.0f)
